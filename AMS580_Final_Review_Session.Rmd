@@ -1,0 +1,823 @@
+---
+title: "AMS 580 Final Exam Review Session"
+author: "Weihao Wang"
+date: "Spring 2026"
+output:
+  pdf_document:
+    toc: true
+  word_document:
+    toc: true
+  html_document:
+    toc: true
+    toc_depth: 3
+    number_sections: true
+---
+Part 1
+Classification task
+logistic/ SVM/ RF/ DT/ NN/ Boosting
+confusion matrix/ accuracy
+
+Part 2
+Regression task
+LR/ RF/ DT/ NN/ Boosting
+MSE/ RMSE
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE,
+  message = FALSE,
+  warning = FALSE,
+  fig.width = 7,
+  fig.height = 5
+)
+```
+
+# Review Session Goals
+
+This file is designed as a compact final-exam review for AMS 580. It reviews the most important modeling workflows, common R functions, and common mistakes.
+
+Main topics:
+
+- Linear regression and model diagnostics
+- Logistic regression and classification metrics
+- Stepwise and best-subset variable selection
+- Penalized regression: ridge, lasso, elastic net
+- PCA, correspondence analysis, and clustering
+- CART, random forest, boosting, SVM
+- Neural networks for regression and classification
+- RNN/LSTM concepts and reproducibility issues
+
+Most examples use the `banknote` and `Titanic2` datasets.
+
+# 0. Package Loading and Function Masking
+
+```{r packages}
+# IMPORTANT: Load packages carefully. Some packages have functions with the same names.
+# Common masking examples:
+# 1. dplyr::select() can be masked by MASS::select().
+# 2. dplyr::filter() can be confused with stats::filter().
+# 3. dplyr::lag() can be confused with stats::lag().
+# 4. keras3 and tensorflow depend on a correctly initialized Python environment.
+# 5. randomForest::importance() and xgboost importance functions are different.
+
+# Good practice: use package::function() when there is possible conflict.
+# Example: dplyr::select(data, x, y), MASS::stepAIC(model), e1071::svm(...)
+
+required_packages <- c(
+  "tidyverse", "caret", "MASS", "leaps", "glmnet", "rpart", "rpart.plot",
+  "randomForest", "e1071", "pROC", "nnet", "xgboost", "factoextra"
+)
+
+# Do not install packages during an exam unless explicitly allowed.
+# If a package is missing, install it before the review/exam.
+for (pkg in required_packages) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    message("Package not installed: ", pkg)
+  }
+}
+
+library(tidyverse)
+library(caret)
+```
+
+```{r masking-demo, eval=FALSE}
+# If you load MASS after tidyverse, MASS::select may mask dplyr::select.
+library(MASS)
+
+# This may fail if select() is masked:
+# select(mydata, x1, x2)
+
+# Safer version:
+#dplyr::select(mydata, x1, x2)
+
+# Use conflicts() to check masked functions.
+conflicts()
+```
+
+# 1. Load and Prepare Data
+
+```{r load-data}
+# Put this Rmd file in the same folder as banknote(2).csv and Titanic2.csv.
+# Common mistake: file path errors during knitting.
+# Always set the working directory correctly or use relative paths.
+
+banknote <- read.csv("banknote.csv")
+titanic <- read.csv("Titanic2.csv")
+
+str(banknote)
+str(titanic)
+```
+
+```{r data-cleaning}
+# Banknote: class is coded as 0/1. For classification models, convert it to a factor.
+# Common mistake: leaving class as numeric makes some models treat it as regression.
+
+banknote <- banknote %>%
+  mutate(
+    class = factor(class, levels = c(0, 1), labels = c("genuine", "forged"))
+  )
+
+# Titanic: Survived is also 0/1. Convert to factor for classification.
+# Remove variables that are mostly identifiers or high-cardinality text fields.
+# Common mistake: including Name or Ticket directly can create too many meaningless dummy variables.
+
+Titanic_clean <- titanic %>%
+  dplyr::select(Survived, Pclass, Sex, Age, SibSp, Parch, Fare, Embarked) %>%
+  mutate(
+    Survived = factor(Survived, levels = c(0, 1), labels = c("No", "Yes")),
+    Pclass = factor(Pclass),
+    Sex = factor(Sex),
+    Embarked = factor(Embarked)
+  ) %>%
+  drop_na()
+
+summary(banknote)
+summary(Titanic_clean)
+```
+
+```{r train-test-split}
+set.seed(123)
+
+# Common mistake: splitting without set.seed() makes results change every time.
+# Common mistake: preprocessing the full dataset before splitting may cause data leakage.
+# For simple examples, we split first and then estimate preprocessing parameters from training data.
+
+idx_bank <- caret::createDataPartition(banknote$class, p = 0.8, list = FALSE)
+bank_train <- banknote[idx_bank, ]
+bank_test  <- banknote[-idx_bank, ]
+
+idx_titanic <- caret::createDataPartition(Titanic_clean$Survived, p = 0.8, list = FALSE)
+titanic_train <- Titanic_clean[idx_titanic, ]
+titanic_test  <- Titanic_clean[-idx_titanic, ]
+
+prop.table(table(bank_train$class))
+prop.table(table(bank_test$class))
+prop.table(table(titanic_train$Survived))
+prop.table(table(titanic_test$Survived))
+```
+
+# 2. Evaluation Metrics
+
+## 2.1 Regression metrics
+
+```{r regression-metrics}
+rmse <- function(y, yhat) sqrt(mean((y - yhat)^2))
+mae <- function(y, yhat) mean(abs(y - yhat))
+r_squared <- function(y, yhat) 1 - sum((y - yhat)^2) / sum((y - mean(y))^2)
+
+# Common mistake: using training RMSE only. Always report test/validation RMSE when evaluating prediction.
+```
+
+## 2.2 Classification metrics
+
+```{r classification-metrics}
+# Confusion matrix convention matters.
+# caret::confusionMatrix(data = predicted, reference = truth, positive = "Yes")
+# Common mistake: reversing predicted and reference changes interpretation.
+
+classification_report <- function(pred, truth, positive_level) {
+  caret::confusionMatrix(data = pred, reference = truth, positive = positive_level)
+}
+```
+
+# 3. Linear Regression
+
+Use Titanic data to predict `Fare` as a numeric response. This is only for reviewing the linear regression workflow.
+
+```{r linear-regression}
+# Common mistake: lm() is for continuous response, not binary classification.
+# If the response is 0/1, use glm(..., family = binomial), not lm().
+
+lm_train <- titanic_train %>%
+  mutate(logFare = log(Fare + 1))
+
+lm_test <- titanic_test %>%
+  mutate(logFare = log(Fare + 1))
+
+lm_fit <- lm(logFare ~ Pclass + Sex + Age + SibSp + Parch + Embarked, data = lm_train)
+summary(lm_fit)
+
+lm_pred <- predict(lm_fit, newdata = lm_test)
+rmse(lm_test$logFare, lm_pred)
+mae(lm_test$logFare, lm_pred)
+r_squared(lm_test$logFare, lm_pred)
+```
+
+```{r linear-diagnostics}
+# Diagnostic plots check linearity, equal variance, outliers, and normality of residuals.
+# Common mistake: a significant coefficient does not automatically mean strong prediction.
+# Common mistake: R-squared is not a test-set prediction metric unless computed on test data.
+
+par(mfrow = c(2, 2))
+plot(lm_fit)
+par(mfrow = c(1, 1))
+```
+
+Key points:
+
+- Use `lm()` for continuous response.
+- Interpret coefficients conditional on the other variables.
+- Check residuals and outliers.
+- Use test RMSE/MAE for prediction performance.
+- Do not compare models only by training error.
+
+# 4. Logistic Regression
+
+Use Titanic survival as the binary response.
+
+```{r logistic-regression}
+# Logistic regression models log-odds.
+# Common mistake: using predict(model) directly gives log-odds, not probabilities.
+# Use type = "response" to get probabilities.
+
+logit_fit <- glm(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked,
+                 data = titanic_train,
+                 family = binomial)
+summary(logit_fit)
+
+prob_yes <- predict(logit_fit, newdata = titanic_test, type = "response")
+
+# Common mistake: threshold = 0.5 is default but not always optimal, especially for imbalanced data.
+pred_yes <- ifelse(prob_yes > 0.5, "Yes", "No")
+pred_yes <- factor(pred_yes, levels = levels(titanic_test$Survived))
+
+classification_report(pred_yes, titanic_test$Survived, positive_level = "Yes")
+```
+
+```{r logistic-roc}
+# ROC/AUC uses probabilities, not class labels.
+# Common mistake: passing predicted classes to ROC instead of probabilities.
+
+if (requireNamespace("pROC", quietly = TRUE)) {
+  roc_obj <- pROC::roc(response = titanic_test$Survived,
+                       predictor = prob_yes,
+                       levels = c("No", "Yes"))
+  pROC::auc(roc_obj)
+  plot(roc_obj, main = "ROC Curve: Logistic Regression")
+}
+```
+
+Important interpretation:
+
+- Coefficients are on the log-odds scale.
+- `exp(coef)` gives odds ratios.
+- Accuracy alone can be misleading for imbalanced data.
+- Sensitivity and specificity depend on the threshold.
+
+```{r odds-ratio}
+exp(coef(logit_fit))
+```
+
+# 5. Stepwise and Best-Subset Variable Selection
+
+```{r stepwise-selection}
+# Stepwise selection is based on AIC by default when using MASS::stepAIC().
+# Common mistake: loading MASS can mask dplyr::select(). Use MASS::stepAIC explicitly.
+# Common mistake: selecting variables on the full dataset before train/test split causes data leakage.
+
+if (requireNamespace("MASS", quietly = TRUE)) {
+  full_lm <- lm(logFare ~ Pclass + Sex + Age + SibSp + Parch + Embarked, data = lm_train)
+  null_lm <- lm(logFare ~ 1, data = lm_train)
+
+  step_fit <- MASS::stepAIC(null_lm,
+                            scope = list(lower = null_lm, upper = full_lm),
+                            direction = "both",
+                            trace = FALSE)
+  summary(step_fit)
+
+  step_pred <- predict(step_fit, newdata = lm_test)
+  rmse(lm_test$logFare, step_pred)
+}
+```
+
+```{r best-subset-selection}
+# Best subset selection tries combinations of predictors.
+# Common mistake: best subset can be computationally expensive for many predictors.
+# Common mistake: the selected model may overfit if selection is not validated.
+
+if (requireNamespace("leaps", quietly = TRUE)) {
+  best_fit <- leaps::regsubsets(logFare ~ Pclass + Sex + Age + SibSp + Parch + Embarked,
+                                data = lm_train,
+                                nvmax = 6)
+  best_sum <- summary(best_fit)
+  best_sum$adjr2
+  best_sum$bic
+
+  plot(best_sum$bic, type = "b",
+       xlab = "Number of variables",
+       ylab = "BIC",
+       main = "Best Subset Selection by BIC")
+}
+```
+
+Exam reminders:
+
+- AIC tends to choose larger models than BIC.
+- Stepwise selection is greedy; it does not guarantee the global best model.
+- Best subset is more exhaustive but can be unstable.
+- Always evaluate selected models on validation/test data.
+
+# 6. Penalized Regression: Ridge, Lasso, Elastic Net
+
+Use `glmnet`. It requires a numeric matrix `x` and response vector `y`.
+
+```{r glmnet-regression}
+# Common mistake: glmnet does not accept a regular data frame with factors directly.
+# Use model.matrix() to create dummy variables.
+# Common mistake: model.matrix() includes an intercept column by default. Remove it with [, -1].
+# Common mistake: standardization is important for penalized regression. glmnet standardizes by default.
+
+if (requireNamespace("glmnet", quietly = TRUE)) {
+  x_train <- model.matrix(logFare ~ Pclass + Sex + Age + SibSp + Parch + Embarked,
+                          data = lm_train)[, -1]
+  y_train <- lm_train$logFare
+
+  x_test <- model.matrix(logFare ~ Pclass + Sex + Age + SibSp + Parch + Embarked,
+                         data = lm_test)[, -1]
+  y_test <- lm_test$logFare
+
+  set.seed(123)
+  ridge_cv <- glmnet::cv.glmnet(x_train, y_train, alpha = 0) # alpha = 0 ridge
+  lasso_cv <- glmnet::cv.glmnet(x_train, y_train, alpha = 1) # alpha = 1 lasso
+  enet_cv  <- glmnet::cv.glmnet(x_train, y_train, alpha = 0.5) # elastic net
+
+  ridge_pred <- predict(ridge_cv, newx = x_test, s = "lambda.min")
+  lasso_pred <- predict(lasso_cv, newx = x_test, s = "lambda.min")
+  enet_pred  <- predict(enet_cv,  newx = x_test, s = "lambda.min")
+
+  c(
+    ridge_rmse = rmse(y_test, ridge_pred),
+    lasso_rmse = rmse(y_test, lasso_pred),
+    enet_rmse  = rmse(y_test, enet_pred)
+  )
+
+  coef(lasso_cv, s = "lambda.min")
+}
+```
+
+```{r glmnet-classification}
+# For binary classification in glmnet, use family = "binomial".
+# Response can be a factor or 0/1 numeric, but be careful about positive class interpretation.
+
+if (requireNamespace("glmnet", quietly = TRUE)) {
+  x_train_b <- model.matrix(class ~ ., data = bank_train)[, -1]
+  y_train_b <- bank_train$class
+  x_test_b  <- model.matrix(class ~ ., data = bank_test)[, -1]
+
+  set.seed(123)
+  lasso_bin <- glmnet::cv.glmnet(x_train_b, y_train_b,
+                                 family = "binomial",
+                                 alpha = 1)
+
+  prob_forged <- predict(lasso_bin, newx = x_test_b,
+                         s = "lambda.min", type = "response")
+  pred_forged <- ifelse(prob_forged > 0.5, "forged", "genuine")
+  pred_forged <- factor(pred_forged, levels = levels(bank_test$class))
+
+  classification_report(pred_forged, bank_test$class, positive_level = "forged")
+}
+```
+
+Conceptual reminders:
+
+- Ridge shrinks coefficients but usually does not set them exactly to zero.
+- Lasso can perform variable selection by setting coefficients to zero.
+- Elastic net combines ridge and lasso.
+- `lambda.min` gives the minimum cross-validation error.
+- `lambda.1se` gives a simpler model within one standard error of the minimum.
+
+# 7. PCA and Clustering
+
+Use only numeric predictors from the banknote dataset.
+
+```{r pca}
+# PCA is unsupervised. Do not use the class label when computing PCs.
+# Common mistake: including the response variable in PCA causes leakage.
+# Common mistake: forgetting scale. PCA is sensitive to variable scale.
+
+bank_x <- banknote %>%
+  dplyr::select(variance, skewness, curtosis, entropy)
+
+pca_fit <- prcomp(bank_x, center = TRUE, scale. = TRUE)
+summary(pca_fit)
+
+plot(pca_fit, type = "l", main = "Scree Plot")
+biplot(pca_fit, scale = 0)
+```
+
+```{r clustering}
+# K-means is also unsupervised.
+# Common mistake: comparing cluster labels directly to class labels without allowing label switching.
+# Cluster 1 does not necessarily mean genuine or forged.
+
+set.seed(123)
+bank_scaled <- scale(bank_x)
+
+km2 <- kmeans(bank_scaled, centers = 2, nstart = 25)
+table(Cluster = km2$cluster, TrueClass = banknote$class)
+
+# Elbow method
+wss <- sapply(1:8, function(k) {
+  kmeans(bank_scaled, centers = k, nstart = 25)$tot.withinss
+})
+plot(1:8, wss, type = "b",
+     xlab = "Number of clusters K",
+     ylab = "Total within-cluster sum of squares",
+     main = "Elbow Method")
+```
+
+Important reminders:
+
+- PCA is for dimension reduction and visualization.
+- K-means assumes roughly spherical clusters.
+- Hierarchical clustering does not require choosing K first, but you still need to cut the tree.
+- Scaling is usually necessary for PCA and distance-based clustering.
+
+# 8. CART: Classification and Regression Trees
+
+```{r cart-classification}
+# CART is easy to interpret but can overfit.
+# Common mistake: not pruning the tree.
+# Common mistake: using type = "vector" or default predictions when class labels/probabilities are needed.
+
+if (requireNamespace("rpart", quietly = TRUE)) {
+  cart_fit <- rpart::rpart(class ~ ., data = bank_train, method = "class")
+  printcp(cart_fit)
+
+  if (requireNamespace("rpart.plot", quietly = TRUE)) {
+    rpart.plot::rpart.plot(cart_fit)
+  }
+
+  cart_pred <- predict(cart_fit, newdata = bank_test, type = "class")
+  classification_report(cart_pred, bank_test$class, positive_level = "forged")
+}
+```
+
+```{r cart-pruning}
+if (requireNamespace("rpart", quietly = TRUE)) {
+  # Choose cp with lowest cross-validation error.
+  best_cp <- cart_fit$cptable[which.min(cart_fit$cptable[, "xerror"]), "CP"]
+  pruned_cart <- rpart::prune(cart_fit, cp = best_cp)
+
+  if (requireNamespace("rpart.plot", quietly = TRUE)) {
+    rpart.plot::rpart.plot(pruned_cart)
+  }
+
+  pruned_pred <- predict(pruned_cart, newdata = bank_test, type = "class")
+  classification_report(pruned_pred, bank_test$class, positive_level = "forged")
+}
+```
+
+Conceptual reminders:
+
+- A single tree has high variance.
+- Pruning reduces overfitting.
+- Trees handle nonlinear interactions naturally.
+- Trees do not require feature scaling.
+
+# 9. Random Forest
+
+```{r random-forest}
+# Random forest reduces variance by averaging many trees.
+# Common mistake: thinking random forest is automatically interpretable like one tree.
+# Common mistake: using importance as causal explanation. Variable importance is predictive, not causal.
+
+if (requireNamespace("randomForest", quietly = TRUE)) {
+  set.seed(123)
+  rf_fit <- randomForest::randomForest(class ~ .,
+                                       data = bank_train,
+                                       ntree = 500,
+                                       mtry = 2,
+                                       importance = TRUE)
+  rf_fit
+
+  rf_pred <- predict(rf_fit, newdata = bank_test, type = "class")
+  classification_report(rf_pred, bank_test$class, positive_level = "forged")
+
+  randomForest::varImpPlot(rf_fit, main = "Random Forest Variable Importance")
+}
+```
+
+Key points:
+
+- Bagging uses bootstrap samples.
+- Random forest adds random feature selection at each split.
+- Important tuning parameters: `ntree`, `mtry`, node size / tree depth.
+- RF often performs well but is less interpretable than a single tree.
+
+# 10. Boosting: AdaBoost, Gradient Boosting, XGBoost
+
+```{r xgboost-banknote}
+# XGBoost requires numeric matrix input.
+# Common mistake: passing a factor response directly to xgboost.
+# Common mistake: labels for binary logistic objective should be 0/1 numeric.
+# Common mistake: using best_nrounds when the object stores best_iteration or best_iter.
+
+if (requireNamespace("xgboost", quietly = TRUE)) {
+  x_train_xgb <- as.matrix(bank_train %>% dplyr::select(-class))
+  y_train_xgb <- ifelse(bank_train$class == "forged", 1, 0)
+  x_test_xgb <- as.matrix(bank_test %>% dplyr::select(-class))
+  y_test_xgb <- ifelse(bank_test$class == "forged", 1, 0)
+
+  dtrain <- xgboost::xgb.DMatrix(data = x_train_xgb, label = y_train_xgb)
+  dtest  <- xgboost::xgb.DMatrix(data = x_test_xgb, label = y_test_xgb)
+
+  params <- list(
+    objective = "binary:logistic",
+    eval_metric = "logloss",
+    max_depth = 3,
+    eta = 0.1,
+    subsample = 0.8,
+    colsample_bytree = 0.8
+  )
+
+  set.seed(123)
+  xgb_fit <- xgboost::xgb.train(
+    params = params,
+    data = dtrain,
+    nrounds = 100,
+    watchlist = list(train = dtrain, test = dtest),
+    verbose = 0
+  )
+
+  xgb_prob <- predict(xgb_fit, newdata = dtest)
+  xgb_pred <- ifelse(xgb_prob > 0.5, "forged", "genuine")
+  xgb_pred <- factor(xgb_pred, levels = levels(bank_test$class))
+
+  classification_report(xgb_pred, bank_test$class, positive_level = "forged")
+}
+```
+
+Conceptual reminders:
+
+- AdaBoost sequentially updates observation weights.
+- Gradient boosting sequentially fits the negative gradient/residual direction.
+- XGBoost improves gradient boosting with regularization, shrinkage, subsampling, and efficient implementation.
+- Boosting is order-dependent; later trees correct previous errors.
+- Tune `nrounds`, `eta`, `max_depth`, `subsample`, and `colsample_bytree`.
+
+# 11. Support Vector Machine
+
+```{r svm-banknote}
+# SVM is sensitive to feature scale. Scale numeric predictors.
+# Common mistake: using a linear kernel when the boundary is nonlinear, or using RBF without tuning cost/gamma.
+# Common mistake: probability = TRUE must be set during training if you want probabilities later.
+
+if (requireNamespace("e1071", quietly = TRUE)) {
+  set.seed(123)
+  svm_fit <- e1071::svm(class ~ ., data = bank_train,
+                        kernel = "radial",
+                        cost = 1,
+                        gamma = 0.5,
+                        scale = TRUE,
+                        probability = TRUE)
+
+  svm_pred <- predict(svm_fit, newdata = bank_test)
+  classification_report(svm_pred, bank_test$class, positive_level = "forged")
+}
+```
+
+```{r svm-tuning, eval=FALSE}
+# Tuning example. This may take time.
+# Common mistake: tuning on the test set. Use cross-validation inside the training set.
+
+set.seed(123)
+svm_tune <- e1071::tune.svm(
+  class ~ ., data = bank_train,
+  kernel = "radial",
+  cost = c(0.1, 1, 10),
+  gamma = c(0.01, 0.1, 1)
+)
+summary(svm_tune)
+```
+
+Conceptual reminders:
+
+- Linear SVM seeks a maximum-margin hyperplane.
+- Kernel SVM maps data into a higher-dimensional feature space implicitly.
+- Larger `cost` penalizes misclassification more strongly and can overfit.
+- RBF `gamma` controls how local the decision boundary is.
+
+# 12. Neural Networks for Classification
+
+Use `nnet` for a lightweight exam-review example.
+
+```{r nnet-classification}
+# Neural networks usually require scaled numeric features.
+# Common mistake: not scaling inputs, causing unstable training.
+# Common mistake: expecting identical results every run without setting seed.
+# Common mistake: too many hidden units with small data can overfit.
+
+if (requireNamespace("nnet", quietly = TRUE)) {
+  bank_train_scaled <- bank_train
+  bank_test_scaled <- bank_test
+
+  pp_bank <- caret::preProcess(bank_train_scaled %>% dplyr::select(-class),
+                               method = c("center", "scale"))
+  bank_train_scaled[, 1:4] <- predict(pp_bank, bank_train_scaled %>% dplyr::select(-class))
+  bank_test_scaled[, 1:4]  <- predict(pp_bank, bank_test_scaled %>% dplyr::select(-class))
+
+  set.seed(123)
+  nn_fit <- nnet::nnet(class ~ ., data = bank_train_scaled,
+                       size = 5,
+                       decay = 0.01,
+                       maxit = 500,
+                       trace = FALSE)
+
+  nn_pred <- predict(nn_fit, newdata = bank_test_scaled, type = "class")
+  nn_pred <- factor(nn_pred, levels = levels(bank_test_scaled$class))
+
+  classification_report(nn_pred, bank_test_scaled$class, positive_level = "forged")
+}
+```
+
+Conceptual reminders:
+
+- Hidden layers learn nonlinear transformations of the input features.
+- Activation functions introduce nonlinearity.
+- Regularization can be done by weight decay, dropout, early stopping, or smaller networks.
+- Neural networks may be less interpretable than regression/tree models.
+
+# 13. Neural Networks for Regression
+
+```{r nnet-regression}
+# Example: predict logFare in Titanic.
+# Common mistake: neural networks for regression need linear output, but nnet handles this with linout = TRUE.
+# Common mistake: response scaling may help, especially for larger neural networks.
+
+if (requireNamespace("nnet", quietly = TRUE)) {
+  # model.matrix handles categorical predictors.
+  x_nn_train <- model.matrix(logFare ~ Pclass + Sex + Age + SibSp + Parch + Embarked,
+                             data = lm_train)[, -1]
+  x_nn_test <- model.matrix(logFare ~ Pclass + Sex + Age + SibSp + Parch + Embarked,
+                            data = lm_test)[, -1]
+
+  pp_nn <- caret::preProcess(as.data.frame(x_nn_train), method = c("center", "scale"))
+  x_nn_train_s <- predict(pp_nn, as.data.frame(x_nn_train))
+  x_nn_test_s  <- predict(pp_nn, as.data.frame(x_nn_test))
+
+  nn_reg_train <- cbind(logFare = lm_train$logFare, x_nn_train_s)
+  nn_reg_test  <- cbind(logFare = lm_test$logFare, x_nn_test_s)
+
+  set.seed(123)
+  nn_reg_fit <- nnet::nnet(logFare ~ ., data = nn_reg_train,
+                           size = 4,
+                           decay = 0.01,
+                           linout = TRUE,
+                           maxit = 500,
+                           trace = FALSE)
+
+  nn_reg_pred <- predict(nn_reg_fit, newdata = nn_reg_test)
+  rmse(nn_reg_test$logFare, nn_reg_pred)
+}
+```
+
+# 14. RNN and LSTM Review
+
+RNN/LSTM models are mainly for sequential data. Banknote and Titanic are tabular data, so they are not natural examples for RNN/LSTM. Use time series or ordered sequences instead.
+
+```{r rnn-lstm-concept, eval=FALSE}
+# Conceptual input shape for keras3 RNN/LSTM:
+# x should be a 3D array: samples × timesteps × features
+# Example: dim(x_train) = c(number_of_sequences, sequence_length, number_of_features)
+
+# Common mistake: passing a 2D matrix to LSTM.
+# Common mistake: wrong shape order. Keras uses samples, timesteps, features.
+# Common mistake: using future information when creating sequences for time-series prediction.
+# Common mistake: random train/test split for time series. Usually use chronological split.
+
+library(keras3)
+
+seq_len <- 10
+n_features <- 1
+
+model_lstm <- keras_model_sequential() |>
+  layer_input(shape = c(seq_len, n_features)) |>
+  layer_lstm(units = 32) |>
+  layer_dense(units = 1)
+
+model_lstm |>
+  compile(
+    optimizer = "adam",
+    loss = "mse"
+  )
+```
+
+## RNN vs LSTM conceptual differences
+
+- Simple RNN has one hidden-state update mechanism.
+- LSTM has gates: input gate, forget gate, output gate, and cell state.
+- LSTM is designed to handle longer-term dependencies better than simple RNN.
+- Both require sequence-shaped input.
+- For small/simple sequences, RNN may be enough; for longer dependency, LSTM often works better.
+
+## Reproducibility warning for keras3
+
+```{r keras-reproducibility, eval=FALSE}
+# keras3::set_random_seed(123) is necessary but may not be sufficient.
+# GPU operations can still be nondeterministic.
+# For stronger reproducibility, set determinism and consider CPU-only execution.
+
+Sys.setenv(CUDA_VISIBLE_DEVICES = "-1")  # run before TensorFlow is loaded, optional CPU-only mode
+
+library(keras3)
+library(tensorflow)
+
+keras3::set_random_seed(123)
+tf$config$experimental$enable_op_determinism()
+
+# Common mistake: setting seed after model construction.
+# Set seed before creating the model and before fitting.
+# Common mistake: using validation_split with shuffle = TRUE when exact reproducibility is needed.
+```
+
+# 15. Model Comparison Summary
+
+```{r model-comparison-template, eval=FALSE}
+# A clean model comparison table should use test-set metrics.
+# Common mistake: comparing training accuracy of one model with test accuracy of another model.
+# Common mistake: changing train/test split across models.
+
+results <- tibble::tibble(
+  Model = c("Logistic Regression", "CART", "Random Forest", "SVM", "XGBoost", "Neural Network"),
+  Accuracy = c(NA, NA, NA, NA, NA, NA),
+  Sensitivity = c(NA, NA, NA, NA, NA, NA),
+  Specificity = c(NA, NA, NA, NA, NA, NA),
+  AUC = c(NA, NA, NA, NA, NA, NA)
+)
+
+results
+```
+
+General comparison ideas:
+
+- Linear/logistic regression: interpretable baseline.
+- Penalized regression: useful for many predictors and multicollinearity.
+- CART: interpretable but unstable.
+- Random forest: strong nonlinear baseline, less interpretable.
+- Boosting/XGBoost: often highly accurate, requires tuning.
+- SVM: strong for medium-size data, sensitive to scaling and tuning.
+- Neural network: flexible but may require more tuning and data.
+- RNN/LSTM: for sequential/time-series data, not ordinary tabular data.
+
+# 16. Final Exam Common Mistake Checklist
+
+## Data preparation
+
+- Do not include the response variable in scaling/PCA/clustering predictors.
+- Split the data before estimating preprocessing parameters.
+- Convert binary classification responses to factors when using classification models.
+- Do not include ID variables or high-cardinality text fields without proper processing.
+- Check missing values before modeling.
+
+## Modeling
+
+- Use `lm()` for continuous response.
+- Use `glm(..., family = binomial)` for binary logistic regression.
+- Use `type = "response"` for logistic regression probabilities.
+- Use `type = "class"` for CART class predictions.
+- Use `model.matrix()` for `glmnet`, `xgboost`, and some neural network workflows.
+- Scale inputs for PCA, clustering, SVM, neural networks, and penalized regression.
+- Do not scale tree-based models because it is usually unnecessary.
+
+## Evaluation
+
+- Use test-set or cross-validation performance.
+- Accuracy is not enough if the classes are imbalanced.
+- Sensitivity and specificity require defining the positive class.
+- ROC/AUC should be computed from probabilities or scores, not hard class labels.
+- For regression, report RMSE/MAE/test R-squared.
+
+## Function names and masking
+
+- Use `dplyr::select()` if `MASS` is loaded.
+- Use `MASS::stepAIC()` for stepwise AIC selection.
+- Use `e1071::svm()` for SVM.
+- Use `randomForest::randomForest()` and `randomForest::varImpPlot()` for random forest.
+- Use `glmnet::cv.glmnet()` for penalized regression.
+- Use `rpart::rpart()` and `rpart.plot::rpart.plot()` for CART.
+
+## Interpretation
+
+- Prediction performance is not the same as causal explanation.
+- Variable importance is not causality.
+- A statistically significant variable may not improve prediction much.
+- A more complicated model is not always better.
+- Always connect the method choice to the data type and prediction goal.
+
+# 17. Very Short Conceptual Review
+
+- **Bias-variance tradeoff:** simple models may underfit; complex models may overfit.
+- **Cross-validation:** estimates out-of-sample performance and helps tune parameters.
+- **Regularization:** controls model complexity.
+- **PCA:** finds directions of maximum variance, unsupervised.
+- **Clustering:** groups observations without labels.
+- **Bagging:** averages many models to reduce variance.
+- **Boosting:** sequentially improves weak learners to reduce errors.
+- **SVM:** maximizes margin; kernels allow nonlinear boundaries.
+- **Neural networks:** learn nonlinear feature transformations.
+- **LSTM:** sequence model designed to remember longer-term dependencies.
+
+
+
