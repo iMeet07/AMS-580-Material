@@ -1,0 +1,121 @@
+---
+title: "CA_PCA"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+
+```{r}
+library(tidyverse)
+library(caret)
+library(factoextra)
+library(cluster)
+library(ggbiplot)
+library(devtools)
+```
+
+
+1. Clustering
+```{r}
+str(iris)
+data = na.omit(iris)
+scaled_data = scale(data[,-5]) # PCA and clustering are sensitive to scale
+
+# 1. K-means
+kmeans_fit <- kmeans(scaled_data, centers = 3, nstart = 25)
+# Scree-plot
+fviz_nbclust(scaled_data, kmeans, method = "wss") # 3 clusters seems good
+# 2D Cluster Plot
+clusplot(scaled_data, kmeans_fit$cluster, main="K-means Clustering", color=TRUE, shade=TRUE, labels=2, lines=0)
+table(kmeans_fit$cluster, data$Species) # we need to adjust the class order
+# confusion matrix:
+# 50 0 0
+# 0 39 14
+# 0 11 36
+# accuracy = (50+39+36)/150 = 125/150
+
+# 2-6. Hierarchical Clustering
+
+# 2. H.Ward
+d <- dist(data, method = "euclidean")
+H.fit <- hclust(d, method="ward.D")
+plot(H.fit)
+rect.hclust(H.fit, k=3, border="red")
+groups <- cutree(H.fit, k=3)
+clusplot(data, groups, main='2D representation of the Cluster solution',color=TRUE, shade=TRUE,labels=2, lines=0)
+clusters = factor(groups, levels = 1:3, labels = c("setosa", "versicolor",  "virginica"))
+table(iris[,5], clusters)
+# accuracy = (49+50+27)/150 = 126/150
+
+# 3. H.Single
+H.fit <- hclust(d, method="single")
+plot(H.fit)
+rect.hclust(H.fit, k=3, border="red")
+groups <- cutree(H.fit, k=3)
+clusplot(data, groups, main='2D representation of the Cluster solution',color=TRUE, shade=TRUE,labels=2, lines=0)
+clusters = factor(groups, levels = 1:3, labels = c("setosa", "versicolor",  "virginica"))
+table(iris[,5], clusters)
+# accuracy = 99/150
+
+# 4. H.Complete
+H.fit <- hclust(d, method="complete")
+plot(H.fit)
+rect.hclust(H.fit, k=3, border="red")
+groups <- cutree(H.fit, k=3)
+clusplot(data, groups, main='2D representation of the Cluster solution',color=TRUE, shade=TRUE,labels=2, lines=0)
+clusters = factor(groups, levels = 1:3, labels = c("setosa", "versicolor",  "virginica"))
+table(iris[,5], clusters)
+# accuracy = 118/150
+
+# 5. H.Average
+H.fit <- hclust(d, method="average")
+plot(H.fit)
+rect.hclust(H.fit, k=3, border="red")
+groups <- cutree(H.fit, k=3)
+clusplot(data, groups, main='2D representation of the Cluster solution',color=TRUE, shade=TRUE,labels=2, lines=0)
+clusters = factor(groups, levels = 1:3, labels = c("setosa", "versicolor",  "virginica"))
+table(iris[,5], clusters)
+# accuracy = 103/150
+
+# 6. H.Centroid
+H.fit <- hclust(d, method="centroid")
+plot(H.fit)
+rect.hclust(H.fit, k=3, border="red")
+groups <- cutree(H.fit, k=3)
+clusplot(data, groups, main='2D representation of the Cluster solution',color=TRUE, shade=TRUE,labels=2, lines=0)
+clusters = factor(groups, levels = 1:3, labels = c("setosa", "versicolor",  "virginica"))
+table(iris[,5], clusters)
+# accuracy = 99/150
+
+# (e) Ward's method is a little bit better than K-means, espetially to find virginica level.
+H.fit <- hclust(d, method="ward.D")
+groups <- cutree(H.fit, k=3)
+ward_labels <- factor(groups, levels = 1:3, labels = c("setosa", "versicolor", "virginica"))
+kmeans_labels <- factor(kmeans_fit$cluster, levels = c(3,1,2), labels = c("setosa", "versicolor", "virginica"))
+table(kmeans = kmeans_labels, ward = ward_labels)
+
+# (f) Comparison:
+# Ward > K-means > Complete > Average > Single = Centroid
+# I would recommend the cluster analysis as a good way to deal with this IRIS dataset.
+# K-means and complete methods are usually great, but here Ward method is the best one from the confusion matrix.
+```
+
+2.
+```{r}
+#(a)
+iris.pca = prcomp(scaled_data, center = TRUE,scale. = TRUE)
+summary(iris.pca)
+#(b)
+ggbiplot(iris.pca)
+#(c)
+ggbiplot(iris.pca, ellipse=TRUE, groups=iris$Species)
+#(d)
+iris.pca$rotation[,1] #PC1
+```
+(e)
+
+I recommend the PCA method as an efficient way here.
+PCA is a very effective tool in this context. The first two PCs account for over 95% of the variance in the original data, allowing us to visualize and classify the species clearly. PCA helps simplify complex data while preserving important structure and is especially useful when dealing with high-dimensional or noisy data.
+

@@ -1,0 +1,336 @@
+---
+title: "Boosting Methods with the Banknote Data"
+author: "Standard Solutions"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: '2'
+  html_document:
+    toc: true
+    toc_depth: 2
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(caret)
+library(adabag) # adaboost
+library(gbm) # gradient boost
+library(xgboost) # xgboost
+library(dplyr)
+library(ggplot2)
+
+set.seed(123)
+```
+
+## Data preparation
+
+```{r}
+# Read the data
+banknote <- read.csv("banknote.csv")
+
+# Make sure the response is a factor for classification.
+# We keep the positive class as "1" (forged) throughout the exercise.
+banknote$class <- factor(banknote$class, levels = c(0, 1))
+
+# Split into training and testing sets using the same split for all models.
+set.seed(123)
+idx <- createDataPartition(banknote$class, p = 0.75, list = FALSE)
+train.data <- banknote[idx, ]
+test.data  <- banknote[-idx, ]
+
+nrow(train.data)
+nrow(test.data)
+```
+
+The outputs above report the numbers of observations in the training and testing sets.
+
+## Q2. AdaBoost
+
+```{r}
+# AdaBoost from the adabag package.
+# mfinal = 100 means we use 100 weak learners.
+# coeflearn = "Breiman" uses the classical Breiman-style updating rule.
+set.seed(123)
+ada_model <- boosting(
+  class ~ ., data = train.data,
+  mfinal = 100,   # 100 trees
+  coeflearn = "Breiman",  # update rule
+  boos = TRUE   # bootstrap samples
+)
+
+ada_pred <- predict(ada_model, newdata = test.data)
+ada_class <- factor(ada_pred$class, levels = c(0, 1))
+
+cm_ada <- confusionMatrix(ada_class, test.data$class, positive = "1")
+cm_ada
+```
+
+```{r}
+ada_sens <- cm_ada$byClass["Sensitivity"]
+ada_spec <- cm_ada$byClass["Specificity"]
+ada_acc  <- cm_ada$overall["Accuracy"]
+
+ada_sens
+ada_spec
+ada_acc
+```
+
+## Q3. Gradient Boosting (GBM)
+
+```{r}
+# gbm expects a numeric 0/1 response for Bernoulli loss.
+train_gbm <- train.data %>% mutate(class_num = as.numeric(as.character(class)))
+test_gbm  <- test.data  %>% mutate(class_num = as.numeric(as.character(class)))
+
+# Grid of tuning values requested in the exercise.
+gbm_grid <- expand.grid(
+  interaction.depth = c(1, 2, 3),  # the depth of each tree
+  shrinkage = c(0.01, 0.05, 0.1),  # learning rate
+  n.minobsinnode = c(5, 10)  # the minimum number of observations in terminal nodes
+)
+
+# We use a reasonably large maximum number of trees, then let CV choose the best one.
+# The best model is the one with the smallest CV error at its own best tree count.
+gbm_results <- data.frame()
+gbm_models <- list()
+
+for (i in 1:nrow(gbm_grid)) {
+  set.seed(123)
+  fit_i <- gbm(
+    formula = class_num ~ variance + skewness + curtosis + entropy,
+    data = train_gbm,
+    distribution = "bernoulli",
+    n.trees = 2000, # maximum number of boosting trees
+    interaction.depth = gbm_grid$interaction.depth[i],
+    shrinkage = gbm_grid$shrinkage[i],
+    n.minobsinnode = gbm_grid$n.minobsinnode[i],
+    cv.folds = 5,  # 5-fold cross-validation
+    bag.fraction = 0.8, # each tree is trained using a random 80% subsample of the training data
+    verbose = FALSE
+  )
+  best_iter <- gbm.perf(fit_i, method = "cv", plot.it = FALSE)
+  # This finds the best number of trees based on cross-validation error
+  best_cv <- fit_i$cv.error[best_iter]
+  gbm_results <- rbind(
+    gbm_results,
+    data.frame(
+      interaction.depth = gbm_grid$interaction.depth[i],
+      shrinkage = gbm_grid$shrinkage[i],
+      n.minobsinnode = gbm_grid$n.minobsinnode[i],
+      best_n.trees = best_iter,
+      cv_error = best_cv
+    )
+  )
+  gbm_models[[i]] <- fit_i
+}
+
+gbm_results <- gbm_results[order(gbm_results$cv_error), ]
+gbm_results
+```
+
+```{r}
+# Extract the best GBM fit and its best number of trees.
+best_gbm_row <- gbm_results[1, ]
+best_gbm_index <- which(
+  gbm_grid$interaction.depth == best_gbm_row$interaction.depth &
+  gbm_grid$shrinkage == best_gbm_row$shrinkage &
+  gbm_grid$n.minobsinnode == best_gbm_row$n.minobsinnode
+)[1]
+
+best_gbm_model <- gbm_models[[best_gbm_index]]
+best_gbm_trees <- best_gbm_row$best_n.trees
+best_gbm_row
+```
+
+```{r}
+# Predict probabilities, then convert to class labels using 0.5.
+gbm_prob <- predict(best_gbm_model, newdata = test_gbm, n.trees = best_gbm_trees, type = "response")
+gbm_class <- factor(ifelse(gbm_prob > 0.5, 1, 0), levels = c(0, 1))
+
+cm_gbm <- confusionMatrix(gbm_class, test.data$class, positive = "1")
+cm_gbm
+```
+
+```{r}
+gbm_sens <- cm_gbm$byClass["Sensitivity"]
+gbm_spec <- cm_gbm$byClass["Specificity"]
+gbm_acc  <- cm_gbm$overall["Accuracy"]
+
+gbm_sens
+gbm_spec
+gbm_acc
+```
+
+## Q4. XGBoost
+
+```{r}
+# xgboost requires a numeric design matrix and numeric 0/1 labels.
+train_x <- as.matrix(train.data[, c("variance", "skewness", "curtosis", "entropy")])
+test_x  <- as.matrix(test.data[,  c("variance", "skewness", "curtosis", "entropy")])
+train_y <- as.numeric(as.character(train.data$class))
+test_y  <- as.numeric(as.character(test.data$class))
+# XGBoost training feature matrix
+
+dtrain <- xgb.DMatrix(data = train_x, label = train_y)
+dtest  <- xgb.DMatrix(data = test_x,  label = test_y)
+
+xgb_grid <- expand.grid(
+  eta = c(0.05, 0.1),
+  max_depth = c(2, 3, 4),
+  subsample = c(0.8, 1.0),
+  colsample_bytree = c(0.8, 1.0)
+)
+
+# eta is the learning rate.
+# max_depth controls the maximum depth of each tree.
+# subsample controls the fraction of training observations used for each boosting round.
+# colsample_bytree controls the fraction of predictors used for each tree.
+
+xgb_results <- data.frame()
+
+for (i in 1:nrow(xgb_grid)) {
+  params_i <- list(
+    objective = "binary:logistic",
+    eval_metric = "logloss",
+    eta = xgb_grid$eta[i],
+    max_depth = xgb_grid$max_depth[i],
+    subsample = xgb_grid$subsample[i],
+    colsample_bytree = xgb_grid$colsample_bytree[i]
+  )
+
+#  objective = "binary:logistic" means binary classification with logistic output probabilities.
+#  eval_metric = "logloss" means the model is evaluated using log loss.
+
+  set.seed(123)
+  cv_i <- xgb.cv(
+    params = params_i,
+    data = dtrain,
+    nrounds = 300,
+    nfold = 5,
+    early_stopping_rounds = 20,
+    verbose = 0
+  )
+
+#  nrounds = 300 means the maximum number of boosting rounds is 300.
+#  nfold = 5 means 5-fold CV.
+#  early_stopping_rounds = 20 means training stops if the validation log loss does not improve for 20 rounds.
+#  verbose = 0 suppresses printed training output.
+  
+  xgb_results <- rbind(
+    xgb_results,
+    data.frame(
+      eta = xgb_grid$eta[i],
+      max_depth = xgb_grid$max_depth[i],
+      subsample = xgb_grid$subsample[i],
+      colsample_bytree = xgb_grid$colsample_bytree[i],
+      best_nrounds = cv_i$best_iteration,
+      best_logloss = cv_i$evaluation_log$test_logloss_mean[cv_i$best_iteration]
+    )
+  )
+}
+
+xgb_results <- xgb_results[order(xgb_results$best_logloss), ]
+xgb_results
+```
+
+```{r}
+best_xgb_row <- xgb_results[1, ]
+best_xgb_row
+```
+
+```{r}
+# Train the final XGBoost model using the best settings selected by CV.
+best_params <- list(
+  objective = "binary:logistic",
+  eval_metric = "logloss",
+  eta = best_xgb_row$eta,
+  max_depth = best_xgb_row$max_depth,
+  subsample = best_xgb_row$subsample,
+  colsample_bytree = best_xgb_row$colsample_bytree
+)
+
+set.seed(123)
+final_xgb <- xgb.train(
+  params = best_params,
+  data = dtrain,
+  nrounds = best_xgb_row$best_nrounds,
+  verbose = 0
+)
+
+xgb_prob <- predict(final_xgb, newdata = dtest)
+xgb_class <- factor(ifelse(xgb_prob > 0.5, 1, 0), levels = c(0, 1))
+
+cm_xgb <- confusionMatrix(xgb_class, test.data$class, positive = "1")
+cm_xgb
+```
+
+```{r}
+xgb_sens <- cm_xgb$byClass["Sensitivity"]
+xgb_spec <- cm_xgb$byClass["Specificity"]
+xgb_acc  <- cm_xgb$overall["Accuracy"]
+
+xgb_sens
+xgb_spec
+xgb_acc
+```
+
+## Q5. Variable importance
+
+```{r}
+# GBM variable importance
+# summary(..., plotit = FALSE) returns a table of relative influence.
+gbm_importance <- summary(best_gbm_model, n.trees = best_gbm_trees, plotit = FALSE)
+gbm_importance
+```
+
+```{r}
+# XGBoost variable importance
+xgb_importance <- xgb.importance(
+  feature_names = colnames(train_x),
+  model = final_xgb
+)
+xgb_importance
+```
+
+```{r}
+# Plot GBM importance
+ggplot(gbm_importance, aes(x = reorder(var, rel.inf), y = rel.inf)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "GBM Variable Importance", x = "Variable", y = "Relative Influence") +
+  theme_minimal()
+```
+
+```{r}
+# Plot XGBoost importance using Gain
+xgb_importance_plot <- xgb_importance[, c("Feature", "Gain")]
+
+ggplot(xgb_importance_plot, aes(x = reorder(Feature, Gain), y = Gain)) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "XGBoost Variable Importance (Gain)", x = "Variable", y = "Gain") +
+  theme_minimal()
+```
+
+The most influential variables are the ones near the top of the importance rankings above. Because importance is model-specific, the exact ranking may differ across boosting methods.
+
+## Q6. Final comparison of AdaBoost, Gradient Boosting, and XGBoost
+
+```{r}
+comparison_table <- data.frame(
+  Model = c("AdaBoost", "Gradient Boosting", "XGBoost"),
+  Sensitivity = c(as.numeric(ada_sens), as.numeric(gbm_sens), as.numeric(xgb_sens)),
+  Specificity = c(as.numeric(ada_spec), as.numeric(gbm_spec), as.numeric(xgb_spec)),
+  Accuracy = c(as.numeric(ada_acc), as.numeric(gbm_acc), as.numeric(xgb_acc))
+)
+
+comparison_table
+```
+
+```{r}
+best_model <- comparison_table[which.max(comparison_table$Accuracy), ]
+best_model
+```
+
+All the same!
+
+In general, XGBoost often performs strongly because it combines gradient boosting with regularization, shrinkage, subsampling, and efficient tree construction. However, the strongest method in a given application still depends on the tuning choices, sample size, noise level, and structure of the predictors.

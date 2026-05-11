@@ -1,0 +1,636 @@
+---
+title: "AMS 580 - Standard Solutions for Exercise on RNN and LSTM"
+output:
+  pdf_document:
+    latex_engine: xelatex
+  html_document:
+    toc: true
+    toc_depth: 2
+---
+
+latex_engine: xelatex
+for unicode characters
+
+```{r setup, message=FALSE, warning=FALSE}
+# Core packages
+library(keras3)
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(tidyr)
+
+set.seed(123)
+
+# ------------------------------------------------------------
+# IMPORTANT RUNNING NOTE
+# ------------------------------------------------------------
+# This Rmd uses keras3, which requires a Python backend.
+# Before knitting this file, make sure keras3 and its backend
+# are installed correctly, for example:
+#
+# keras3::install_keras(backend = "tensorflow")
+#
+# You will also need:
+# 1. Python
+# 2. The TensorFlow backend installed through keras3
+# 3. An AAPL.csv file in your working directory
+# ------------------------------------------------------------
+
+# Helper: create sliding-window sequences for 1-step-ahead prediction
+make_sequences <- function(series, seq_len = 10) {
+  n <- length(series)
+  X <- array(NA_real_, dim = c(n - seq_len, seq_len, 1))
+  y <- numeric(n - seq_len)
+
+  for (i in 1:(n - seq_len)) {
+    X[i, , 1] <- series[i:(i + seq_len - 1)]
+    y[i] <- series[i + seq_len]
+  }
+
+  list(X = X, y = y)
+}
+
+# Helper: recursive forecast for h steps
+# Start from the most recent observed sequence, predict 1 step,
+# append that prediction, and continue.
+recursive_forecast <- function(model, last_sequence, h = 10) {
+  preds <- numeric(h)
+  current_seq <- as.numeric(last_sequence)
+
+  for (i in 1:h) {
+    x_input <- array(current_seq, dim = c(1, length(current_seq), 1))
+    next_pred <- as.numeric(predict(model, x_input, verbose = 0))
+    preds[i] <- next_pred
+    current_seq <- c(current_seq[-1], next_pred)
+  }
+
+  preds
+}
+
+# Helper: invert standard min-max scaling
+inverse_minmax <- function(x_scaled, min_val, max_val) {
+  x_scaled * (max_val - min_val) + min_val
+}
+```
+
+# Exercise 1. LSTM & RNN on Sine Wave
+
+## Q1. Generate a sine wave with 400 points and plot it
+
+```{r}
+# The assignment asks for x ranging from 0 to 20 with 400 points.
+x <- seq(0, 20, length.out = 400)
+sine_wave <- sin(x)
+
+sine_df <- data.frame(
+  index = 1:400,
+  x = x,
+  y = sine_wave
+)
+
+ggplot(sine_df, aes(x = x, y = y)) +
+  geom_line(linewidth = 0.8) +
+  labs(
+    title = "Generated Sine Wave",
+    x = "x",
+    y = "sin(x)"
+  ) +
+  theme_minimal()
+```
+
+## Q2. Divide the data into training and testing parts
+
+```{r}
+# The last 10 points are reserved as testing y, exactly as requested.
+train_series <- sine_wave[1:390]
+test_y_sine <- sine_wave[391:400]
+
+length(train_series)
+length(test_y_sine)
+```
+
+The training series contains 390 points, and the testing response contains the last 10 points.
+
+## Q3. Build a vanilla RNN with sequence length 10 and 32 hidden units
+
+```{r}
+seq_len <- 10
+
+# We use sequence length 10 because the assignment explicitly requires
+# each input sequence to use 10 sequential points to predict the next point.
+train_seq_sine <- make_sequences(train_series, seq_len = seq_len)
+
+dim(train_seq_sine$X)
+length(train_seq_sine$y)
+```
+
+```{r}
+# Vanilla RNN model
+# - units = 32 because the assignment specifies one RNN layer with 32 hidden units
+# - loss = "mse" because this is a regression / forecasting problem
+# - optimizer = "adam" is a standard and stable default choice
+model_rnn_sine <- keras_model_sequential() |>
+  layer_simple_rnn(units = 32, input_shape = c(seq_len, 1)) |>
+  layer_dense(units = 1)
+
+# Keras suggested format:
+# model_rnn_sine <- keras_model_sequential() |>
+#  layer_input(shape = c(seq_len, 1)) |>
+#  layer_simple_rnn(units = 32) |>
+#  layer_dense(units = 1)
+
+model_rnn_sine |>
+  compile(
+    optimizer = "adam",
+    loss = "mse"
+  )
+
+# epochs and batch_size are not specified in the assignment,
+# so we choose practical values that are usually sufficient
+# for a simple sine-wave forecasting task.
+history_rnn_sine <- model_rnn_sine |>
+  fit(
+    x = train_seq_sine$X,
+    y = train_seq_sine$y,
+    epochs = 150,
+    batch_size = 16,
+    verbose = 0
+  )
+
+summary(model_rnn_sine)
+```
+
+## Q4. Build an LSTM with sequence length 10 and 32 hidden units
+
+```{r}
+# LSTM model
+# - units = 32 because the assignment specifies one LSTM layer with 32 hidden units
+# - loss = "mse" because this is again a regression problem
+model_lstm_sine <- keras_model_sequential() |>
+  layer_lstm(units = 32, input_shape = c(seq_len, 1)) |>
+  layer_dense(units = 1)
+
+model_lstm_sine |>
+  compile(
+    optimizer = "adam",
+    loss = "mse"
+  )
+
+history_lstm_sine <- model_lstm_sine |>
+  fit(
+    x = train_seq_sine$X,
+    y = train_seq_sine$y,
+    epochs = 150,
+    batch_size = 16,
+    verbose = 0
+  )
+
+summary(model_lstm_sine)
+```
+
+## Q5. Plot the training loss for RNN and LSTM
+
+```{r}
+loss_df_sine <- data.frame(
+  epoch = 1:150,
+  RNN = as.numeric(history_rnn_sine$metrics$loss),
+  LSTM = as.numeric(history_lstm_sine$metrics$loss)
+) |>
+  pivot_longer(cols = c(RNN, LSTM), names_to = "Model", values_to = "Loss")
+
+ggplot(loss_df_sine, aes(x = epoch, y = Loss, color = Model)) +
+  geom_line(linewidth = 0.8) +
+  labs(
+    title = "Training Loss: RNN vs LSTM on Sine Wave",
+    x = "Epoch",
+    y = "MSE Loss"
+  ) +
+  theme_minimal()
+```
+
+## Q6. Compute test MSE, compare both models, and plot predictions vs actual values
+
+```{r}
+# For a 10-step forecast, we start from the last 10 points in the training series.
+last_train_seq_sine <- train_series[(length(train_series) - seq_len + 1):length(train_series)]
+
+# Recursive 10-step forecasts
+pred_rnn_sine <- recursive_forecast(model_rnn_sine, last_train_seq_sine, h = 10)
+pred_lstm_sine <- recursive_forecast(model_lstm_sine, last_train_seq_sine, h = 10)
+
+# The assignment asks for MSE, so we compute MSE directly.
+mse_rnn_sine <- mean((pred_rnn_sine - test_y_sine)^2)
+mse_lstm_sine <- mean((pred_lstm_sine - test_y_sine)^2)
+
+mse_rnn_sine
+mse_lstm_sine
+```
+
+Based on the test MSE values above, the vanilla RNN performs better than the LSTM on this sine-wave forecasting task in this run, because it achieves a smaller test MSE.
+
+```{r}
+comparison_sine <- data.frame(
+  Step = 1:10,
+  Actual = test_y_sine,
+  RNN = pred_rnn_sine,
+  LSTM = pred_lstm_sine
+)
+
+comparison_sine_long <- comparison_sine |>
+  pivot_longer(cols = c(Actual, RNN, LSTM), names_to = "Series", values_to = "Value")
+
+ggplot(comparison_sine_long, aes(x = Step, y = Value, color = Series)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 2) +
+  labs(
+    title = "10-Step Forecast on the Sine Wave",
+    x = "Forecast Step",
+    y = "Value"
+  ) +
+  theme_minimal()
+```
+
+The plot shows that both models capture the upward pattern of the sine wave reasonably well. However, the vanilla RNN predictions are consistently closer to the true values than the LSTM predictions over the 10 forecast steps. This agrees with the test MSE results, where the vanilla RNN has the smaller MSE.
+
+
+
+# Exercise 2. LSTM & RNN Stock Price Predictions
+
+## Q1. Plot close price vs date, apply lagged min-max scaling, and report the last 10 scaled close prices
+
+```{r}
+# Read the stock-price data
+# The file AAPL.csv should be placed in the working directory.
+aapl <- read_csv("AAPL.csv", show_col_types = FALSE)
+
+# Keep the key variables. Most Yahoo-style files contain at least Date and Close.
+# If your downloaded file contains more columns, that is fine.
+aapl <- aapl |>
+  mutate(Date = as.Date(Date)) |>
+  arrange(Date)
+
+# Visualize the close price
+ggplot(aapl, aes(x = Date, y = Close)) +
+  geom_line(linewidth = 0.8) +
+  labs(
+    title = "AAPL Close Price vs Date",
+    x = "Date",
+    y = "Close Price"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# ------------------------------------------------------------
+# Lagged min-max scaling
+# ------------------------------------------------------------
+# The assignment says:
+# Scaled_x = (x - lagged_min(x)) / (lagged_max(x) - lagged_min(x))
+# and the lagged min/max should be based on previous days only.
+#
+# A principled interpretation is:
+# - lagged_min_t = min(Close_1, ..., Close_{t-1})
+# - lagged_max_t = max(Close_1, ..., Close_{t-1})
+#
+# This avoids using information from the current day.
+# ------------------------------------------------------------
+aapl <- aapl |>
+  mutate(
+    lagged_min = dplyr::lag(cummin(Close)),
+    lagged_max = dplyr::lag(cummax(Close)),
+    range_prev = lagged_max - lagged_min,
+    scaled_close = (Close - lagged_min) / range_prev
+  )
+
+# Remove rows where lagged min/max are unavailable or the denominator is zero.
+aapl_clean <- aapl |>
+  filter(!is.na(scaled_close), is.finite(scaled_close), range_prev > 0)
+
+tail(aapl_clean$scaled_close, 10)
+```
+
+The values shown above are the last 10 scaled close prices.
+
+## Q2. Split the data into training and testing sets and report the training size
+
+```{r}
+# The last 10 prices are reserved as testing y.
+# The remaining prices form the training set.
+scaled_series <- aapl_clean$scaled_close
+close_series <- aapl_clean$Close
+date_series <- aapl_clean$Date
+
+n_total <- length(scaled_series)
+
+train_scaled <- scaled_series[1:(n_total - 10)]
+test_scaled <- scaled_series[(n_total - 9):n_total]
+
+train_close <- close_series[1:(n_total - 10)]
+test_close <- close_series[(n_total - 9):n_total]
+
+train_dates <- date_series[1:(n_total - 10)]
+test_dates <- date_series[(n_total - 9):n_total]
+
+length(train_scaled)
+```
+
+The number shown above is how many days of stock price are divided into the training set.
+
+## Q3. Create 3D training and testing predictors and responses, and report their dimensions
+
+```{r}
+seq_len_stock <- 10
+
+# Training sequences:
+# each sample uses 10 lagged scaled close prices to predict the next one.
+train_seq_stock <- make_sequences(train_scaled, seq_len = seq_len_stock)
+
+dim(train_seq_stock$X)
+length(train_seq_stock$y)
+```
+
+```{r}
+# Testing predictors:
+# The assignment asks us to use the last 10 observations in the training set
+# as the initial testing x. To report testing predictors and response in 3D form,
+# we build 10 rolling windows using the full scaled series.
+#
+# For day t in the test period, the predictor uses the 10 immediately previous
+# scaled closes. This construction gives a testing tensor with 10 samples.
+X_test_stock <- array(NA_real_, dim = c(10, seq_len_stock, 1))
+y_test_stock <- numeric(10)
+
+test_start_index <- n_total - 9
+
+for (i in 1:10) {
+  target_index <- test_start_index + i - 1
+  X_test_stock[i, , 1] <- scaled_series[(target_index - seq_len_stock):(target_index - 1)]
+  y_test_stock[i] <- scaled_series[target_index]
+}
+
+dim(X_test_stock)
+dim(y_test_stock)
+```
+
+The outputs above report the dimensions of the training and testing predictors/responses.  
+For keras recurrent layers, the predictor arrays must have the 3D form:
+
+\[
+[\text{samples}, \text{timesteps}, \text{features}]
+\]
+
+## Q4. Build the LSTM model, compute test MSE, scale predictions back, plot forecasts, and predict 2022-03-29
+
+```{r}
+# LSTM model for stock prediction
+# - units = 200 because the assignment explicitly requires 200 hidden units
+# - loss = "mse" because this is a continuous prediction problem
+# - sequence length = 10 because the assignment asks for a 10-day forecast setup
+model_lstm_stock <- keras_model_sequential() |>
+  layer_lstm(units = 200, input_shape = c(seq_len_stock, 1)) |>
+  layer_dense(units = 1)
+
+model_lstm_stock |>
+  compile(
+    optimizer = "adam",
+    loss = "mse"
+  )
+
+# We use a moderate number of epochs and a small batch size.
+# These are practical training settings because the assignment does not fix them.
+history_lstm_stock <- model_lstm_stock |>
+  fit(
+    x = train_seq_stock$X,
+    y = train_seq_stock$y,
+    epochs = 200,
+    batch_size = 16,
+    verbose = 0
+  )
+```
+
+```{r}
+# 10-day recursive forecast:
+# start from the last 10 observations in the training set
+last_train_seq_stock <- train_scaled[(length(train_scaled) - seq_len_stock + 1):length(train_scaled)]
+pred_lstm_scaled <- recursive_forecast(model_lstm_stock, last_train_seq_stock, h = 10)
+
+# Test MSE in the scaled space
+mse_lstm_stock <- mean((pred_lstm_scaled - test_scaled)^2)
+mse_lstm_stock
+```
+
+```{r}
+# Scale the 10-day predictions back to the original price scale.
+# Since the scaling is lagged and cumulative, the inverse transformation
+# for each forecast step should use the previous historical min and max.
+#
+# During recursive forecasting, once we move beyond the first forecast,
+# the "history" includes earlier forecasts, because future true closes are unknown.
+pred_lstm_close <- numeric(10)
+history_close_for_inverse <- train_close
+
+for (i in 1:10) {
+  prev_min <- min(history_close_for_inverse)
+  prev_max <- max(history_close_for_inverse)
+
+  pred_lstm_close[i] <- inverse_minmax(pred_lstm_scaled[i], prev_min, prev_max)
+
+  # Append the predicted close for the next step's inverse scaling
+  history_close_for_inverse <- c(history_close_for_inverse, pred_lstm_close[i])
+}
+
+comparison_lstm_stock <- data.frame(
+  Date = test_dates,
+  Actual = test_close,
+  Predicted = pred_lstm_close
+)
+
+comparison_lstm_stock
+```
+
+```{r}
+comparison_lstm_long <- comparison_lstm_stock |>
+  pivot_longer(cols = c(Actual, Predicted), names_to = "Series", values_to = "Close")
+
+ggplot(comparison_lstm_long, aes(x = Date, y = Close, color = Series)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 2) +
+  labs(
+    title = "AAPL: 10-Day Forecast Using LSTM",
+    x = "Date",
+    y = "Close Price"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# Predict the close price of 2022-03-29
+# Here we use the last 10 observed scaled close prices available up to 2022-03-28.
+x_next_lstm <- array(tail(scaled_series, seq_len_stock), dim = c(1, seq_len_stock, 1))
+pred_next_lstm_scaled <- as.numeric(predict(model_lstm_stock, x_next_lstm, verbose = 0))
+
+# Inverse transform for the next day using all historical closes up to 2022-03-28
+pred_next_lstm_close <- inverse_minmax(
+  pred_next_lstm_scaled,
+  min(close_series),
+  max(close_series)
+)
+
+pred_next_lstm_close
+```
+
+The value shown above is the model's predicted close price for 2022-03-29 using the LSTM model.
+
+## Q5. Build the vanilla RNN model, compute test MSE, scale predictions back, plot forecasts, and predict 2022-03-29
+
+```{r}
+# Vanilla RNN model for stock prediction
+# - units = 200 because the assignment explicitly requires 200 hidden units
+# - loss = "mse" because this is again a regression problem
+model_rnn_stock <- keras_model_sequential() |>
+  layer_simple_rnn(units = 200, input_shape = c(seq_len_stock, 1)) |>
+  layer_dense(units = 1)
+
+model_rnn_stock |>
+  compile(
+    optimizer = "adam",
+    loss = "mse"
+  )
+
+history_rnn_stock <- model_rnn_stock |>
+  fit(
+    x = train_seq_stock$X,
+    y = train_seq_stock$y,
+    epochs = 200,
+    batch_size = 16,
+    verbose = 0
+  )
+```
+
+```{r}
+# 10-day recursive forecast from the last 10 observations in the training set
+pred_rnn_scaled <- recursive_forecast(model_rnn_stock, last_train_seq_stock, h = 10)
+
+# Test MSE in the scaled space
+mse_rnn_stock <- mean((pred_rnn_scaled - test_scaled)^2)
+mse_rnn_stock
+```
+
+```{r}
+# Scale the 10-day predictions back to the original close-price scale
+pred_rnn_close <- numeric(10)
+history_close_for_inverse_rnn <- train_close
+
+for (i in 1:10) {
+  prev_min <- min(history_close_for_inverse_rnn)
+  prev_max <- max(history_close_for_inverse_rnn)
+
+  pred_rnn_close[i] <- inverse_minmax(pred_rnn_scaled[i], prev_min, prev_max)
+  history_close_for_inverse_rnn <- c(history_close_for_inverse_rnn, pred_rnn_close[i])
+}
+
+comparison_rnn_stock <- data.frame(
+  Date = test_dates,
+  Actual = test_close,
+  Predicted = pred_rnn_close
+)
+
+comparison_rnn_stock
+```
+
+```{r}
+comparison_rnn_long <- comparison_rnn_stock |>
+  pivot_longer(cols = c(Actual, Predicted), names_to = "Series", values_to = "Close")
+
+ggplot(comparison_rnn_long, aes(x = Date, y = Close, color = Series)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 2) +
+  labs(
+    title = "AAPL: 10-Day Forecast Using Vanilla RNN",
+    x = "Date",
+    y = "Close Price"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+# Predict the close price of 2022-03-29 using the vanilla RNN
+x_next_rnn <- array(tail(scaled_series, seq_len_stock), dim = c(1, seq_len_stock, 1))
+pred_next_rnn_scaled <- as.numeric(predict(model_rnn_stock, x_next_rnn, verbose = 0))
+
+pred_next_rnn_close <- inverse_minmax(
+  pred_next_rnn_scaled,
+  min(close_series),
+  max(close_series)
+)
+
+pred_next_rnn_close
+```
+
+The value shown above is the model's predicted close price for 2022-03-29 using the vanilla RNN model.
+
+## Q6. Compare the performance of the LSTM and RNN models
+
+```{r}
+performance_stock <- data.frame(
+  Model = c("LSTM", "Vanilla RNN"),
+  Test_MSE = c(mse_lstm_stock, mse_rnn_stock)
+)
+
+performance_stock
+```
+
+```{r}
+# Optional visual comparison of training losses
+loss_df_stock <- data.frame(
+  epoch = 1:200,
+  LSTM = as.numeric(history_lstm_stock$metrics$loss),
+  RNN = as.numeric(history_rnn_stock$metrics$loss)
+) |>
+  pivot_longer(cols = c(LSTM, RNN), names_to = "Model", values_to = "Loss")
+
+ggplot(loss_df_stock, aes(x = epoch, y = Loss, color = Model)) +
+  geom_line(linewidth = 0.8) +
+  labs(
+    title = "Training Loss: LSTM vs Vanilla RNN on AAPL",
+    x = "Epoch",
+    y = "MSE Loss"
+  ) +
+  theme_minimal()
+```
+
+```{r}
+comparison_all_stock <- data.frame(
+  Date = test_dates,
+  Actual = test_close,
+  LSTM = pred_lstm_close,
+  RNN = pred_rnn_close
+) |>
+  pivot_longer(cols = c(Actual, LSTM, RNN), names_to = "Series", values_to = "Close")
+
+ggplot(comparison_all_stock, aes(x = Date, y = Close, color = Series)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 2) +
+  labs(
+    title = "AAPL: Actual vs LSTM and RNN Forecasts",
+    x = "Date",
+    y = "Close Price"
+  ) +
+  theme_minimal()
+```
+
+Based on the test MSE values, the vanilla RNN performs better than the LSTM for the 10-day AAPL forecasting task in this run, because it achieves a smaller test MSE (0.0211 vs 0.0310). The forecast plot supports this result: both models underestimate the upward movement in the true close prices, but the vanilla RNN stays consistently closer to the actual values than the LSTM.
+
+
+## Tips
+
+For the sine wave example, it may be difficult for the LSTM to clearly outperform the vanilla RNN, because the pattern is very smooth and simple. The vanilla RNN is already powerful enough for that task.
+
+For the AAPL forecasting example, it is more realistic that better tuning could help the LSTM outperform the RNN, especially if you:
+1 increase the sequence length,
+2 adjust the number of hidden units,
+3 increase epochs,
+4 tune the learning rate,
+5 add dropout.
+
+It is possible that an LSTM could outperform a vanilla RNN after further tuning. In this exercise, however, under the current parameter settings and data setup, the vanilla RNN achieved the lower test MSE.
