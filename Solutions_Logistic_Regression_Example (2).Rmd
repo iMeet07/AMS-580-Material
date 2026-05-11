@@ -1,0 +1,110 @@
+---
+title: "Solution to the Logistic Regression Example"
+author: "Your name"
+date: "02/16/2025"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+# Install packages and load data
+
+R does not know which CRAN repository to use when installing packages during knitting.
+```{r}
+options(repos = c(CRAN = "https://cloud.r-project.org/"))
+install.packages('mlbench')
+
+if (!requireNamespace("mlbench")) install.packages('mlbench')
+library(mlbench)
+library(tidyverse)
+library(caret)
+```
+Data Description
+
+The 9 variables of the pimaindiansdiabetes2 tbl data frame are the following ones:  
+  
+pregnant Number of times pregnant (numeric);  
+glucose Plasma glucose concentration a 2 hours in an oral glucose tolerance test (numeric);  
+pressure Diastolic blood pressure (mm Hg) (numeric);  
+triceps Triceps skin fold thickness (mm) (numeric);  
+insulin 2-Hour serum insulin (mu U/ml)(numeric);  
+mass Body mass index (weight in kg/(height in m)^2) (numeric);  
+pedigree Diabetes pedigree function (numeric);  
+age Age (years) (numeric);  
+diabetes class variable: diabetic or not (factor with 2 levels: neg and pos)  
+
+```{r}
+data("PimaIndiansDiabetes2", package = "mlbench")
+PimaIndiansDiabetes2 <- na.omit(PimaIndiansDiabetes2) # remove missing values
+# Inspect the data
+sample_n(PimaIndiansDiabetes2, 3)
+# Split the data into training and test set
+```
+
+
+# Question (a)
+```{r}
+set.seed(123)
+training.samples <- PimaIndiansDiabetes2$diabetes %>% 
+  createDataPartition(p = 0.8, list = FALSE)
+train.data  <- PimaIndiansDiabetes2[training.samples, ]
+test.data <- PimaIndiansDiabetes2[-training.samples, ]
+```
+
+
+# Question (b)
+```{r}
+# Fit the model
+model <- glm( diabetes ~., data = train.data, family = binomial)
+# Summarize the model
+summary(model)
+```
+
+# Question (c)
+
+## prediction
+```{r}
+probabilities <- model %>% predict(test.data, type = "response")
+predicted.classes <- ifelse(probabilities > 0.5, "pos", "neg")
+```
+
+## confusion matrix
+```{r}
+table(predicted.classes,test.data$diabetes)
+```
+
+
+## c(i)
+```{r}
+# Model accuracy
+mean(predicted.classes == test.data$diabetes)
+```
+
+```{r}
+(44+15)/(44+11+8+15)
+```
+
+overall accuracy = P(predicted correctly) = (44+15)/(44+11+8+15) = 0.7564
+
+
+## c(ii)
+
+```{r}
+sum((predicted.classes == 'pos') * (test.data$diabetes == 'pos')) / sum(test.data$diabetes == 'pos')
+```
+```{r}
+15/(11+15)
+```
+
+Sensitivity = P(predicted positive | positive) = 15/(11+15) = 0.5769
+
+## c(iii)
+
+```{r}
+sum((predicted.classes == 'neg') * (test.data$diabetes == 'neg')) / sum(test.data$diabetes == 'neg')
+```
+```{r}
+44/(44+8)
+```
+
+Specificity = P(predicted negative | negative) = 44/(44+8) = 0.8462

@@ -1,0 +1,400 @@
+---
+title: "Transformer Encoder - Standard Solutions (Revised)"
+output:
+  pdf_document:
+    toc: true
+    toc_depth: '2'
+  html_document:
+    toc: true
+    toc_depth: 2
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+library(keras3)
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(tidyr)
+set.seed(123)
+
+# This Rmd uses keras3 and therefore requires a Python backend.
+# Example setup (run once if needed):
+# keras3::install_keras(backend = "tensorflow")
+
+make_sequences <- function(df, feature_cols, target_col, seq_len) {
+  X_raw <- as.matrix(df[, feature_cols])
+  y_raw <- df[[target_col]]
+  n <- nrow(df)
+  n_samples <- n - seq_len
+  n_features <- length(feature_cols)
+  X <- array(NA_real_, dim = c(n_samples, seq_len, n_features))
+  y <- numeric(n_samples)
+  for (i in 1:n_samples) {
+    X[i, , ] <- X_raw[i:(i + seq_len - 1), ]
+    y[i] <- y_raw[i + seq_len]
+  }
+  list(X = X, y = y)
+}
+
+# keras3 + reticulate can sometimes reject arrays with an unexpected backend type.
+# This helper forces clean float32 tensors before model fitting.
+make_keras_input <- function(X, y = NULL) {
+  X_dim <- as.integer(dim(X))
+  X_clean <- array(as.numeric(X), dim = X_dim)
+  storage.mode(X_clean) <- "double"
+  
+  if (is.null(y)) {
+    return(X_clean)
+  }
+  
+  y_clean <- array(as.numeric(y), dim = c(as.integer(length(y)), 1L))
+  storage.mode(y_clean) <- "double"
+  
+  list(X = X_clean, y = y_clean)
+}
+
+inverse_signal <- function(x_scaled, mean_signal, sd_signal) {
+  as.numeric(x_scaled) * sd_signal + mean_signal
+}
+
+recursive_forecast <- function(model, last_window, h = 5) {
+  # last_window is a matrix with shape [seq_len, n_features]
+  current_window <- last_window
+  preds <- numeric(h)
+  for (i in 1:h) {
+    x_input <- op_convert_to_tensor(
+      array(as.numeric(current_window), dim = c(1, nrow(current_window), ncol(current_window))),
+      dtype = "float32"
+    )
+    next_pred <- as.numeric(predict(model, x_input, verbose = 0))
+    preds[i] <- next_pred
+
+    # For this exercise, future exogenous variables are held at their last observed values.
+    new_row <- current_window[nrow(current_window), ]
+    new_row[1] <- next_pred  # first feature is signal
+    current_window <- rbind(current_window[-1, ], new_row)
+  }
+  preds
+}
+```
+
+# 1. Read the dataset and plot signal versus time
+
+```{r}
+data <- read_csv("synthetic_transformer_series.csv", show_col_types = FALSE)
+
+ggplot(data, aes(x = time, y = signal)) +
+  geom_line(linewidth = 0.7, color = "steelblue") +
+  labs(title = "Signal over Time", x = "Time", y = "Signal") +
+  theme_minimal()
+```
+
+```{r}
+# Chronological split: first 75% train, next 15% validation, last 10% test.
+n <- nrow(data)
+train_end <- floor(0.75 * n)
+val_end <- floor(0.90 * n)
+
+train_df <- data[1:train_end, ]
+val_df <- data[(train_end + 1):val_end, ]
+test_df <- data[(val_end + 1):n, ]
+
+nrow(train_df)
+nrow(val_df)
+nrow(test_df)
+```
+
+# 2. Create 3D predictor arrays and responses
+
+```{r}
+seq_len <- 20
+feature_cols <- c("signal", "exog1", "exog2")
+target_col <- "signal"
+
+# Standardize features using training-set statistics only.
+train_means <- sapply(train_df[, feature_cols], mean)
+train_sds <- sapply(train_df[, feature_cols], sd)
+mean_signal <- train_means[["signal"]]
+sd_signal <- train_sds[["signal"]]
+
+scale_with_train <- function(df, means, sds, cols) {
+  out <- df
+  out[, cols] <- scale(df[, cols], center = means, scale = sds)
+  out
+}
+
+train_scaled <- scale_with_train(train_df, train_means, train_sds, feature_cols)
+val_scaled <- scale_with_train(val_df, train_means, train_sds, feature_cols)
+test_scaled <- scale_with_train(test_df, train_means, train_sds, feature_cols)
+
+# To create validation and testing sequences, prepend the needed history.
+val_input_df <- bind_rows(tail(train_scaled, seq_len), val_scaled)
+test_input_df <- bind_rows(tail(bind_rows(train_scaled, val_scaled), seq_len), test_scaled)
+
+train_seq <- make_sequences(train_scaled, feature_cols, target_col, seq_len)
+val_seq <- make_sequences(val_input_df, feature_cols, target_col, seq_len)
+test_seq <- make_sequences(test_input_df, feature_cols, target_col, seq_len)
+
+dim(train_seq$X)
+dim(val_seq$X)
+dim(test_seq$X)
+```
+
+```{r}
+# Convert arrays/vectors to clean float32 tensors before fitting.
+train_keras <- make_keras_input(train_seq$X, train_seq$y)
+val_keras <- make_keras_input(val_seq$X, val_seq$y)
+test_keras_X <- make_keras_input(test_seq$X)
+```
+
+# 3. LSTM baseline
+
+```{r}
+# One LSTM layer with 32 hidden units.
+# We use an Input layer first because this is the recommended keras3 style.
+inputs_lstm <- layer_input(shape = c(seq_len, length(feature_cols)))
+outputs_lstm <- inputs_lstm |>
+  layer_lstm(units = 32) |>
+  layer_dense(units = 1)
+
+model_lstm <- keras_model(inputs = inputs_lstm, outputs = outputs_lstm)
+model_lstm$compile(
+  optimizer = optimizer_adam(),
+  loss = "mse",
+  metrics = list("mse")
+)
+
+callback_es <- callback_early_stopping(
+  monitor = "val_loss",
+  patience = 10,
+  restore_best_weights = TRUE
+)
+
+history_lstm <- model_lstm$fit(
+  x = train_keras$X,
+  y = train_keras$y,
+  validation_data = list(val_keras$X, val_keras$y),
+  epochs = as.integer(80),
+  batch_size = as.integer(32),
+  callbacks = list(callback_es),
+  verbose = 0
+)
+```
+
+```{r}
+extract_history_df <- function(history_obj) {
+  # Try several possible storage locations used by keras / keras3 / reticulate
+  candidates <- list(
+    history_obj$history,
+    history_obj$params,
+    history_obj
+  )
+  
+  hist_list <- NULL
+  
+  for (obj in candidates) {
+    if (is.null(obj)) next
+    
+    # case 1: already a list and contains loss
+    if (is.list(obj) && !is.environment(obj) && "loss" %in% names(obj)) {
+      hist_list <- obj
+      break
+    }
+    
+    # case 2: environment containing loss / val_loss
+    if (is.environment(obj)) {
+      env_names <- ls(obj)
+      if ("loss" %in% env_names) {
+        hist_list <- mget(env_names, envir = obj)
+        break
+      }
+    }
+  }
+  
+  if (is.null(hist_list)) {
+    stop("Could not extract loss history from the History object. Please run str(history_lstm).")
+  }
+  
+  if (!"loss" %in% names(hist_list)) {
+    stop("Training loss not found in history object.")
+  }
+  
+  if (!"val_loss" %in% names(hist_list)) {
+    warning("Validation loss not found; plotting training loss only.")
+    out <- data.frame(
+      epoch = seq_along(unlist(hist_list$loss)),
+      training = as.numeric(unlist(hist_list$loss))
+    )
+    return(out)
+  }
+  
+  data.frame(
+    epoch = seq_along(unlist(hist_list$loss)),
+    training = as.numeric(unlist(hist_list$loss)),
+    validation = as.numeric(unlist(hist_list$val_loss))
+  )
+}
+
+
+loss_lstm_wide <- extract_history_df(history_lstm)
+
+loss_lstm <- tidyr::pivot_longer(
+  loss_lstm_wide,
+  cols = c(training, validation),
+  names_to = "series",
+  values_to = "loss"
+)
+
+ggplot(loss_lstm, aes(x = epoch, y = loss, color = series)) +
+  geom_line(linewidth = 1) +
+  labs(
+    title = "LSTM Training and Validation Loss",
+    x = "Epoch",
+    y = "MSE Loss",
+    color = NULL
+  ) +
+  theme_minimal()
+```
+
+# 4. Transformer encoder model
+
+```{r}
+# A compact Transformer encoder for time-series regression.
+# num_heads = 2 controls how many attention heads are used.
+# key_dim = 16 sets the latent dimension inside each attention head.
+# ff_dim = 32 controls the width of the feed-forward subnetwork.
+# dropout = 0.1 adds regularization.
+inputs_tr <- layer_input(shape = c(seq_len, length(feature_cols)))
+
+attn_out <- layer_multi_head_attention(
+  num_heads = 2,
+  key_dim = 16,
+  dropout = 0.1
+)(inputs_tr, inputs_tr)
+
+x <- layer_add(list(inputs_tr, attn_out)) |>
+  layer_layer_normalization(epsilon = 1e-6)
+
+ffn <- x |>
+  layer_dense(units = 32, activation = "relu") |>
+  layer_dense(units = length(feature_cols))
+
+x <- layer_add(list(x, ffn)) |>
+  layer_layer_normalization(epsilon = 1e-6) |>
+  layer_global_average_pooling_1d() |>
+  layer_dropout(rate = 0.1)
+
+outputs_tr <- x |>
+  layer_dense(units = 16, activation = "relu") |>
+  layer_dense(units = 1)
+
+model_tr <- keras_model(inputs = inputs_tr, outputs = outputs_tr)
+model_tr$compile(
+  optimizer = optimizer_adam(),
+  loss = "mse",
+  metrics = list("mse")
+)
+
+history_tr <- model_tr$fit(
+  x = train_keras$X,
+  y = train_keras$y,
+  validation_data = list(val_keras$X, val_keras$y),
+  epochs = as.integer(80),
+  batch_size = as.integer(32),
+  callbacks = list(callback_es),
+  verbose = 0
+)
+```
+
+```{r}
+loss_tr_wide <- extract_history_df(history_tr)
+
+loss_tr <- tidyr::pivot_longer(
+  loss_tr_wide,
+  cols = c(training, validation),
+  names_to = "series",
+  values_to = "loss"
+)
+
+ggplot(loss_tr, aes(x = epoch, y = loss, color = series)) +
+  geom_line(linewidth = 1) +
+  labs(
+    title = "Transformer Training and Validation Loss",
+    x = "Epoch",
+    y = "MSE Loss",
+    color = NULL
+  ) +
+  theme_minimal()
+```
+
+# 5. Test MSE and prediction plot
+
+```{r}
+pred_lstm_scaled <- as.numeric(predict(model_lstm, test_keras_X, verbose = 0))
+pred_tr_scaled <- as.numeric(predict(model_tr, test_keras_X, verbose = 0))
+actual_test_scaled <- test_seq$y
+
+mse_lstm <- mean((pred_lstm_scaled - actual_test_scaled)^2)
+mse_tr <- mean((pred_tr_scaled - actual_test_scaled)^2)
+
+mse_lstm
+mse_tr
+```
+
+```{r}
+actual_test <- inverse_signal(actual_test_scaled, mean_signal, sd_signal)
+pred_lstm <- inverse_signal(pred_lstm_scaled, mean_signal, sd_signal)
+pred_tr <- inverse_signal(pred_tr_scaled, mean_signal, sd_signal)
+
+plot_df <- data.frame(
+  step = 1:length(actual_test),
+  Actual = actual_test,
+  LSTM = pred_lstm,
+  Transformer = pred_tr
+) |>
+  pivot_longer(cols = c(Actual, LSTM, Transformer), names_to = "series", values_to = "value")
+
+ggplot(plot_df, aes(x = step, y = value, color = series)) +
+  geom_line(linewidth = 0.8) +
+  labs(title = "Testing Predictions: LSTM vs Transformer", x = "Testing Step", y = "Signal") +
+  theme_minimal()
+```
+
+# 6. Which model performs better?
+
+LSTM
+
+In this example, the Transformer appears to underfit. Its predictions collapse toward a smooth mean-like trajectory and fail to track local turning points. A likely reason is that the dataset is relatively small, and the current encoder design with global average pooling may wash out the most recent time-step information that is important for one-step-ahead forecasting.
+
+# 7. Recursive 5-step forecast using the better model
+
+```{r}
+better_model <- if (mse_tr < mse_lstm) model_tr else model_lstm
+model_name <- if (mse_tr < mse_lstm) "Transformer" else "LSTM"
+
+last_window <- as.matrix(tail(test_scaled[, feature_cols], seq_len))
+future_scaled <- recursive_forecast(better_model, last_window, h = 5)
+future_signal <- inverse_signal(future_scaled, mean_signal, sd_signal)
+future_steps <- (max(data$time) + 1):(max(data$time) + 5)
+
+history_plot <- tail(data[, c("time", "signal")], 30)
+history_plot$series <- "Observed"
+
+future_plot <- data.frame(
+  time = future_steps,
+  signal = future_signal,
+  series = "Forecast"
+)
+
+plot_future <- bind_rows(history_plot, future_plot)
+
+ggplot(plot_future, aes(x = time, y = signal, color = series)) +
+  geom_line(linewidth = 0.8) +
+  geom_point(size = 1.8) +
+  labs(
+    title = paste("Recursive 5-Step Forecast Using", model_name),
+    x = "Time",
+    y = "Signal"
+  ) +
+  theme_minimal()
+```

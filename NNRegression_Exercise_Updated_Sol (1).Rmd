@@ -1,0 +1,221 @@
+---
+title: "NNR"
+author: "Weihao Wang"
+date: "2026-03-09"
+output:
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r}
+if (!requireNamespace("tidyverse", quietly = TRUE)) install.packages("tidyverse")
+if (!requireNamespace("caret", quietly = TRUE)) install.packages("caret")
+if (!requireNamespace("neuralnet", quietly = TRUE)) install.packages("neuralnet")
+if (!requireNamespace("MASS", quietly = TRUE)) install.packages("MASS")
+if (!requireNamespace("keras3", quietly = TRUE)) install.packages("keras3")
+if (!requireNamespace("tensorflow", quietly = TRUE)) install.packages("tensorflow")
+
+library(tidyverse)
+library(caret)
+library(neuralnet)
+library(MASS)
+library(keras3)
+library(tensorflow)
+
+data("Boston")
+data <- Boston
+data <- subset(data, select = -c(rad))
+
+str(data)
+summary(data)
+
+set.seed(123)
+train_index <- createDataPartition(data$medv, p = 0.75, list = FALSE)
+
+train_raw <- data[train_index, ]
+test_raw  <- data[-train_index, ]
+
+cat("Training size:", nrow(train_raw), "\n")
+cat("Testing size:", nrow(test_raw), "\n")
+
+# normalize variables using training-set statistics
+train_means <- sapply(train_raw, mean)
+train_sds   <- sapply(train_raw, sd)
+
+train_scaled <- as.data.frame(scale(train_raw, center = train_means, scale = train_sds))
+test_scaled  <- as.data.frame(scale(test_raw, center = train_means, scale = train_sds))
+
+medv_mean <- train_means["medv"]
+medv_sd   <- train_sds["medv"]
+
+unscale_medv <- function(x_scaled) {
+  x_scaled * medv_sd + medv_mean
+}
+
+get_test_mse <- function(pred_scaled, true_scaled) {
+  pred_orig <- unscale_medv(pred_scaled)
+  true_orig <- unscale_medv(true_scaled)
+  mean((pred_orig - true_orig)^2)
+}
+
+# Q2 neural network with no hidden layer
+set.seed(123)
+
+nn_q2 <- neuralnet(medv ~ ., data = train_scaled,hidden = 0,err.fct = "sse",linear.output = TRUE)
+
+plot(nn_q2, rep = "best")
+
+pred_q2_scaled <- predict(nn_q2, test_scaled) %>% as.vector()
+mse_q2 <- get_test_mse(pred_q2_scaled, test_scaled$medv)
+
+cat("Q2 Test MSE =", mse_q2, "\n")
+
+# Q3 neural network with one hidden layer (3 neurons)
+set.seed(123)
+
+nn_q3 <- neuralnet(
+  medv ~ .,
+  data = train_scaled,
+  hidden = 3,
+  err.fct = "sse",
+  linear.output = TRUE
+)
+
+plot(nn_q3, rep = "best")
+
+pred_q3_scaled <- predict(nn_q3, test_scaled) %>% as.vector()
+mse_q3 <- get_test_mse(pred_q3_scaled, test_scaled$medv)
+
+cat("Q3 Test MSE =", mse_q3, "\n")
+
+# Q4 multiple linear regression
+lm_q4 <- lm(medv ~ ., data = train_scaled)
+
+summary(lm_q4)
+coef(lm_q4)
+
+pred_q4_scaled <- predict(lm_q4, newdata = test_scaled) %>% as.vector()
+mse_q4 <- get_test_mse(pred_q4_scaled, test_scaled$medv)
+
+cat("Q4 Test MSE =", mse_q4, "\n")
+
+mse_compare <- data.frame(
+  Model = c(
+    "NN no hidden layer",
+    "NN hidden layer (3 neurons)",
+    "Multiple Linear Regression"
+  ),
+  Test_MSE = c(mse_q2, mse_q3, mse_q4)
+)
+
+mse_compare
+
+true_medv <- unscale_medv(test_scaled$medv)
+pred_q2 <- unscale_medv(pred_q2_scaled)
+pred_q3 <- unscale_medv(pred_q3_scaled)
+pred_q4 <- unscale_medv(pred_q4_scaled)
+
+plot(
+  true_medv, pred_q2,
+  pch = 16, col = "blue",
+  xlab = "True MEDV",
+  ylab = "Predicted MEDV",
+  main = "Predicted vs True Values"
+)
+
+points(true_medv, pred_q3, pch = 17, col = "red")
+points(true_medv, pred_q4, pch = 15, col = "darkgreen")
+
+abline(0,1,lty=2,lwd=2)
+
+legend(
+  "topleft",
+  legend = c("NN no hidden", "NN hidden=3", "MLR"),
+  col = c("blue","red","darkgreen"),
+  pch = c(16,17,15)
+)
+
+plot(
+  pred_q4, pred_q2,
+  pch = 16,
+  col = "purple",
+  xlab = "MLR prediction",
+  ylab = "NN (no hidden) prediction",
+  main = "NN vs MLR predictions"
+)
+
+abline(0,1,lty=2,lwd=2)
+
+# Q5 neural network with ReLU hidden layer using keras3
+x_train <- as.matrix(train_scaled[, colnames(train_scaled) != "medv"])
+y_train <- as.numeric(train_scaled$medv)
+
+x_test <- as.matrix(test_scaled[, colnames(test_scaled) != "medv"])
+y_test <- as.numeric(test_scaled$medv)
+
+set_random_seed(123)
+
+nn_q5 <- keras_model_sequential(input_shape = ncol(x_train)) |>
+  layer_dense(units = 3, activation = "relu") |>
+  layer_dense(units = 1, activation = "linear")
+
+summary(nn_q5)
+
+nn_q5 |>
+  compile(
+    optimizer = optimizer_adam(),
+    loss = "mse",
+    metrics = list("mse")
+  )
+
+history_q5 <- nn_q5 |>
+  fit(
+    x = x_train,
+    y = y_train,
+    epochs = 200,
+    batch_size = 32,
+    validation_split = 0.2,
+    verbose = 0
+  )
+
+plot(history_q5)
+
+pred_q5_scaled <- predict(nn_q5, x_test) |> as.vector()
+mse_q5 <- get_test_mse(pred_q5_scaled, y_test)
+
+cat("Q5 Test MSE =", mse_q5, "\n")
+
+pred_q5 <- unscale_medv(pred_q5_scaled)
+
+plot(
+  true_medv, pred_q5,
+  pch = 16,
+  col = "orange",
+  xlab = "True MEDV",
+  ylab = "Predicted MEDV",
+  main = "ReLU neural network vs true values"
+)
+
+points(true_medv, pred_q4, pch = 15, col = "darkgreen")
+
+abline(0,1,lty=2,lwd=2)
+
+legend(
+  "topleft",
+  legend = c("ReLU NN","MLR"),
+  col = c("orange","darkgreen"),
+  pch = c(16,15)
+)
+
+final_results <- data.frame(
+  Model = c(
+    "NN no hidden layer",
+    "NN hidden layer (3 neurons)",
+    "Multiple Linear Regression",
+    "NN hidden layer (ReLU)"
+  ),
+  Test_MSE = c(mse_q2, mse_q3, mse_q4, mse_q5)
+)
+
+final_results
+```

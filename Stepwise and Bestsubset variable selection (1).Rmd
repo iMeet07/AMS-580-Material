@@ -1,0 +1,147 @@
+---
+title: "Stepwise and best subset variable selection"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+```{r}
+library(MASS)
+library(tidyverse)
+library(caret)
+library(glmnet)
+library(leaps)
+
+# Use variables except G1 and G2 to predicto G3
+# y: G3
+# x: all the other variables
+data <- read.csv('math.csv', sep = ';')
+data <- subset(data, select = - c(G1,G2))
+str(data)
+
+set.seed(123)
+training.samples <- data$G3 %>% createDataPartition(p = 0.75, list = FALSE) # caret pkg
+# Uses createDataPartition() from the caret package to split the data into training (75%) and test (25%) sets.
+# The %>% operator (pipe) is from the tidyverse pkg
+train.data  <- data[training.samples, ]
+test.data <- data[-training.samples, ]
+```
+
+## stepwise model selection using the Bayesian Information Criterion (BIC)
+
+
+
+AIC=−2logL+2k
+
+L = Maximum likelihood of the model
+k = Number of parameters in the model
+
+BIC=−2logL+klogn
+
+n = Number of observations
+
+Backward:
+1. Starts with the full model (all predictors).
+2. Removes the least significant predictor (one with the highest p-value) iteratively.
+3. Stops when removing predictors no longer improves BIC.
+4. Returns the final optimal model (fit_step).
+
+```{r}
+fit <- lm(G3~., data = train.data) # a full model
+fit_step <- stepAIC(fit, k = log(nrow(train.data)), trace = 1) # MASS pkg
+# stepwise selection to find the best subset of predictors step by step.
+# backward selection starts with all predictors and iteratively removes the least important one.
+# k = 2: AIC
+# k = log(n) BIC
+# trace = 1: print the selection process. Larger values may give more information on the fitting process.
+# direction = 'both'/'backward'/'forward'
+pred <- fit_step %>% predict(test.data)
+data.frame(
+RMSE = RMSE(pred, test.data$G3),
+Rsquare = R2(pred, test.data$G3)
+)
+```
+
+forward:
+1. Starts with the null model (intercept only).
+2. Adds the most significant predictor iteratively.
+3. Stops when removing predictors no longer improves BIC.
+4. Returns the final optimal model (fit_step).
+
+```{r}
+null_model <- lm(G3 ~ 1, data = train.data)
+full_model <- lm(G3 ~ ., data = train.data)
+fit_step_fwd <- stepAIC(null_model, scope = list(lower = null_model, upper = full_model), 
+                        direction = "forward", k = log(nrow(train.data)), trace = 1)
+pred_fwd <- fit_step_fwd %>% predict(test.data)
+data.frame(
+RMSE = RMSE(pred_fwd, test.data$G3),
+Rsquare = R2(pred_fwd, test.data$G3)
+)
+```
+
+Bidirectional (Both)
+
+```{r}
+fit_step_both <- stepAIC(fit, k = log(nrow(train.data)), direction = "both", trace = 1)
+pred_both <- fit_step_both %>% predict(test.data)
+data.frame(
+RMSE = RMSE(pred_both, test.data$G3),
+Rsquare = R2(pred_both, test.data$G3)
+)
+```
+
+Backward	
+Full model (G3 ~ .)	Removes least significant predictors iteratively	
+When you have many predictors and want to simplify the model
+
+Forward	
+Intercept-only (G3 ~ 1)	Adds most significant predictors iteratively	
+When you have few predictors and want to build a model from scratch
+
+Both Directions	
+Either (G3 ~ . or G3 ~ 1)	Adds and removes predictors iteratively	
+When unsure whether to start with a full or empty model
+
+
+## These three stepwise regression methods (forward, backward, and bidirectional) may not always give the same final model. 
+1. Stepwise methods are greedy algorithms, meaning they make the best choice at each step but do not guarantee the best overall model.
+2. The sequence of adding/removing predictors can affect which predictors remain in the final model.
+3. Backward selection removes predictors based on p-values, but if two variables are correlated, removing one may make the other significant.
+
+## Bestsubset Variable Selection
+
+It selects the best set of predictors based on BIC (or AIC or R square)
+Tries all possible combinations of predictors to find the best model
+# Global Optima!
+Unlike stepwise selection, which follows a specific path (adding/removing one variable at a time), best subset selection evaluates all possible models.
+
+```{r}
+fit_bs <- regsubsets(G3 ~ ., data = train.data, nvmax = 30)
+# nvmax = 30: sets the maximum number of predictors to consider.
+result <- summary(fit_bs)
+which.min(result$bic)
+result$which[3,]
+
+n <- nrow(train.data)  # Sample size
+p <- 1:(length(result$rss))  # Model sizes (number of predictors + intercept)
+aic_values <- n * log(result$rss / n) + 2 * p  # Compute AIC for each model
+which.min(aic_values)  # Get the model size with the lowest AIC
+result$which[12,]
+
+
+which.max(result$adjr2)
+result$which[1,]
+```
+
+
+# Best Subset Selection (regsubsets())	
+Tries all possible combinations of predictors	
+Finds the truly best model	
+Computationally expensive for many predictors
+
+# Stepwise Selection (stepAIC())	
+Adds/removes one predictor at a time	
+Faster, works well for moderate predictor sets	
+Can miss the best model due to greedy approach

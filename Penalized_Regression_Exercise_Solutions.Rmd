@@ -1,0 +1,128 @@
+---
+title: "Penalized Regression, Exercise"
+author: "Your name"
+date: "mm/dd/yyyy"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+```{r}
+library(MASS)
+library(tidyverse)
+library(caret)
+library(glmnet)
+library(caTools)
+```
+
+Question 1
+
+```{r}
+data("Boston", package = "MASS")
+str(Boston) # the response variable is 'medv' and the other 13 are used to fit the model
+set.seed(123)
+training.samples <- Boston$medv %>% createDataPartition(p = 0.75, list = FALSE)
+train.data  <- Boston[training.samples, ]
+test.data <- Boston[-training.samples, ]
+str(train.data) #381 obs
+str(test.data) #125 obs
+```
+
+Question 2
+
+```{r}
+x <- model.matrix(medv~., train.data)[,-1]
+y <- train.data$medv
+cv <- cv.glmnet(x, y, alpha = 0) # Cross-validation must be performed using training data only.
+cv$lambda.min
+```
+
+Best lambda for ridge regression is 0.6490823
+
+```{r}
+model <- glmnet(x, y, alpha = 0, lambda = cv$lambda.min) # alpha=0: ridge
+# Setting alpha = 0 specifies that the model should use Ridge regression (L2 penalty). 
+# If alpha were 1, that would correspond to Lasso regression (L1 penalty).
+# glmnet package with predictors standardized (default setting)
+coef(model)
+```
+
+
+```{r}
+x.test <- model.matrix(medv ~., test.data)[,-1]
+predictions <- model %>% predict(x.test) %>% as.vector()
+data.frame(
+  RMSE = RMSE(predictions, test.data$medv),
+  Rsquare = R2(predictions, test.data$medv)
+)
+```
+RMSE is 6.635525 and coefficient of determination is 0.6626213.
+
+Question 3
+```{r}
+cv <- cv.glmnet(x, y, alpha = 1)
+cv$lambda.min
+```
+
+Best lambda for LASSO is 0.02943509
+
+```{r}
+model <- glmnet(x, y, alpha = 1, lambda = cv$lambda.min) # alpha=1: lasso
+coef(model)
+```
+
+```{r}
+x.test <- model.matrix(medv ~., test.data)[,-1]
+predictions <- model %>% predict(x.test) %>% as.vector()
+```
+
+```{r}
+data.frame(
+  RMSE = RMSE(predictions, test.data$medv),
+  Rsquare = R2(predictions, test.data$medv)
+)
+```
+RMSE is 6.472275 and coefficient of determination is 0.6749717.
+
+Question 4
+```{r}
+model <- train(
+  medv ~., data = train.data, method = "glmnet",
+  # glmnet algorithm: This method can handle both Ridge (L2) and Lasso (L1) regularization and combinations of them (Elastic Net).
+  trControl = trainControl("cv", number = 10),
+  tuneLength = 10
+)
+model$bestTune
+# alpha: The mixing parameter that determines the balance between Ridge (L2, where alpha = 0) and Lasso (alpha = 1)  (the mix between L1 and L2 penalties)
+# lambda: The overall strength of the regularization. (the strength of the regularization)
+
+# might be different with cv.glmnet(x, y, alpha = 1)
+# cv.glmnet: cross-validated error (MSE)
+# caret: 
+set.seed(123)
+grid_lasso <- expand.grid(alpha = 1, 
+                          lambda = seq(0.001, 0.1, length = 100))
+model_lasso <- train(
+  medv ~ .,
+  data = train.data,
+  method = "glmnet",
+  metric = "MSE",
+  trControl = trainControl(method = "cv", number = 10),
+  tuneGrid = grid_lasso
+)
+model_lasso$bestTune
+```
+
+```{r}
+coef(model$finalModel, model$bestTune$lambda)
+```
+
+```{r}
+x.test <- model.matrix(medv ~., test.data)[,-1]
+predictions <- model %>% predict(x.test)
+data.frame(
+  RMSE = RMSE(predictions, test.data$medv),
+  Rsquare = R2(predictions, test.data$medv) # R² should be computed on the testing data as: 1 − SSE/SST.
+)
+```
+RMSE is 6.433159 and coefficient of determination is 0.6781032

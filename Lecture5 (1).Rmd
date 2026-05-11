@@ -1,0 +1,523 @@
+---
+title: "Review of R: Lecture 5"
+author: "Weihao Wang"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+**Analysis of variance: ANOVA**
+
+**1. One way analysis of variance**
+
+In this section, we consider comparisons among more than two groups parametrically, using analysis of variance.
+
+One-Way ANOVA (Analysis of Variance) is a statistical test used to determine whether there are **statistically significant differences between the means of three or more independent (unrelated) groups**. It assesses whether the group means are different enough to suggest that they come from different populations, or if the differences observed are just due to random variation.
+
+Assumptions of One-Way ANOVA:
+1. Normality: The dependent variable should be approximately normally distributed in each group.  
+2. Independence: Observations are independent of each other within and across groups.  
+3. Homogeneity of variance: The variance of the dependent variable should be equal across all groups (can be tested using Levene’s test).  
+
+Between-group variability: The variability due to the differences between the group means.  
+Within-group variability: The variability within each group (due to random variation).  
+F = Between-group var/Within-group var
+
+Example 1:
+```{r}
+# 1. data
+y1 <- c(18.2, 20.1, 17.6, 16.8, 18.8, 19.3, 19.1) 
+y2 <- c(17.4, 18.7, 19.1, 16.4, 15.2, 18.4)
+y3 <- c(15.2, 18.8, 17.7, 16.5, 15.9, 17.1, 16.3) 
+y<-c(y1, y2, y3)
+n<-c(7, 6, 7)
+# 2. group label
+group<-c(rep(1,7), rep(2,6), rep(3,7))
+# 1+2 -- data frame
+ydata<-data.frame(y=y, group=factor(group)) #y(col name) = y(values)
+str(ydata)
+# ANOVA
+fit<-lm(y~group, ydata)
+anova(fit)
+# H0: all group means are the same
+# p-value > .05 ==> cannot reject H0
+
+# we have p different groups, df1 = p-1
+# sample size n
+# df2 = n-1 - df1 = 20-1-2=17
+```
+
+Example 2:
+```{r}
+library(ISwR)
+data(red.cell.folate)
+attach(red.cell.folate)
+summary(red.cell.folate)
+# H0: the mean folate of different ventilation levels are the same
+anova(lm(folate~ventilation))
+
+mean(red.cell.folate[1:8,1])
+mean(red.cell.folate[9:17,1])
+mean(red.cell.folate[18:22,1])
+```
+
+The specification of a one-way analysis of variance is analogous to a regression analysis. The only difference is that the descriptive variable needs to be a factor and not a numeric variable. We calculate a model object using lm and extract the analysis of variance table with anova.
+
+Example 3:
+```{r}
+data(juul)
+attach(juul)
+juul[1:20,]
+str(juul)
+anova(lm(igf1~tanner)) #this is wrong,
+table(juul$tanner)
+#This does not describe a grouping of data but a linear regression on the group number. Notice the telltale 1 DF for the effect of tanner.
+juul$tanner<- factor(juul$tanner,labels=c("one","two","three","four","five"))
+detach(juul)
+attach(juul)
+summary(tanner)
+anova(lm(igf1~tanner))
+```
+
+Exercise:
+
+we have a dataset of students’ exam scores from three different teaching methods.
+
+```{r}
+# Example data: Exam scores of students from three different teaching methods
+set.seed(123)
+group <- factor(rep(c("Method_A", "Method_B", "Method_C"), each=10))
+scores <- c(rnorm(10, mean=75, sd=5), rnorm(10, mean=80, sd=5), rnorm(10, mean=85, sd=5))
+data <- data.frame(group, scores)
+str(data)
+```
+
+ANOVA:
+
+```{r}
+# Perform one-way ANOVA
+anova_result <- aov(scores ~ group, data = data)
+summary(anova_result)
+# the p-value in the ANOVA table (under "Pr(>F)") is less than 0.05, so we reject the null hypothesis and conclude that at least one group mean is significantly different.
+
+# *** If ANOVA finds a significant difference, you may want to perform post-hoc tests (such as Tukey's HSD test) to determine exactly which groups differ from each other.
+# Perform Tukey's HSD post-hoc test
+TukeyHSD(anova_result)
+```
+
+1.1 Pairwise comparisons and multiple testing
+
+```{r}
+summary(lm(folate~ventilation))
+table(ventilation)
+```
+
+These coefficients do not have their usual meaning as the slope of a regression line but have a special interpretation:
+The interpretation of the estimates is that the intercept is the mean in the first group(N20+02,24h), whereas the other two describe the difference between the relevant group and the first group.
+```{r}
+mean(red.cell.folate[1:8,1])
+mean(red.cell.folate[9:17,1])
+mean(red.cell.folate[18:22,1])
+```
+
+ANOVA: H0: mu1 = mu2 = mu3
+Piared comparison: H0: mu1 = mu2; mu1 = mu3; mu2 = mu3
+
+Among the t tests in the table, you can immediately find a test for the hypothesis that the first two groups have the same true mean(p=0.0139) and also whether the first and the third might be identical (p=0.1548). However, a comparison of the last two groups cannot be found.
+
+A function called pairwise.t.test computes all possible two-group comparisons:
+```{r}
+pairwise.t.test(folate,ventilation,p.adj="bonferroni") #pairwise.t.test(y, group, p.adj = 'bonferroni')
+
+summary(lm(folate~ventilation))
+pairwise.t.test(folate,ventilation)
+```
+
+1.2 relaxing the variance assumption
+
+The traditional one way ANOVA requires an assumption of equal variances for all groups.
+```{r}
+sd(red.cell.folate[1:8,1]) 
+sd(red.cell.folate[9:17,1]) 
+sd(red.cell.folate[18:22,1])
+
+oneway.test(folate~ventilation) # var not equal
+anova(lm(folate~ventilation)) # var equal
+# In this case the p-value increased to a nonsignificant value 0.09277.
+pairwise.t.test(folate,ventilation, pool.sd=F) # default setting is equal var(=T)
+```
+
+1.3 graphical presentation
+
+```{r}
+xbar<-tapply(folate,ventilation,mean) 
+s<-tapply(folate,ventilation,sd) 
+n<-tapply(folate,ventilation,length)
+sem<-s/sqrt(n)
+stripchart(folate~ventilation,vert=T,pch=16 ,method="jitter") 
+arrows(1:3,xbar+sem,1:3,xbar-sem,angle=90,code=3,length=0.1) 
+lines(1:3,xbar,pch=4,type="b",cex=2)
+```
+
+1.4 bartlett’s test
+
+Bartlett's test is used to test for **homogeneity of variances across multiple groups**. It checks whether the variances in different groups are equal, which is an important assumption in ANOVA.  
+Null Hypothesis (H0): All group variances are equal.  
+Alternative Hypothesis (H1): At least one group has a variance different from the others.
+
+Tests variances across groups to check if they are equal. This is critical because ANOVA assumes that the variances of the groups being compared are similar (homoscedasticity).
+
+```{r}
+bartlett.test(folate~ventilation) # how to check equal variance assumption
+# if p-value<.05, then the variances of those different groups are not the same
+```
+
+In this case, nothing id data contradicts the assumption of equal variances in the three groups.
+Barlett’s test, although like the F test for comparison of two variances, it is rather nonrobust against departures from the assumption of normal distribution.
+
+We are often interested in determining whether the means from more than two populations or groups are equal or not. To test whether the
+difference in means is statistically significant, we can perform analysis of variance (ANOVA) using the R function aov(). If the ANOV AF-test shows there is a significant difference in means between the
+groups we may want to perform multiple comparisons between all pair -wise means to determine how they differ.
+ 
+1.5  Examples of Analysis of Variance
+
+The first step in our analysis is to graphically compare the means of the variable of interest across groups. It is possible to create side-by-side boxplots of measurements organized in groups using the function plot(). Simply type plot(response ~ factor, data=data_name )
+
+where response is the name of the response variable and factor the variable that separates the data into groups. Both variables should be contained in a data frame called data_name.
+
+Ex1. A drug company tested three formulations of a pain relief medicine for migraine headache sufferers. For the experiment 27 volunteers were selected and 9 were randomly assigned to one of three drug formulations. The subjects were instructed to take the drug during t heir next migraine headache episode and to report their pain on a scale of 1 to 10 (10 being most pain).
+
+Data:
+Drug A 4 5 4 3 2 4 3 4 4 
+Drug B 6 8 4 5 4 6 5 8 6
+Drug C 6 7 6 6 7 5 6 5 5
+
+To make side-by-side boxplots of the variable pain grouped by the variable drug we must first read in the data into the appropriate format.
+```{r}
+pain = c(4, 5, 4, 3, 2, 4, 3, 4, 4, 6, 8, 4, 5, 4, 6, 5, 8, 6, 6, 7, 6, 6, 7, 5, 6, 5, 5)
+drug = c(rep("A",9), rep("B",9), rep("C",9)) 
+migraine = data.frame(pain,drug);migraine
+# Use factor() if the group levels are integers or numeric values
+#Note the command rep("A",9) constructs a list of nine As in a row. The variable drug is therefore a list of length 27 consisting of nine As followed by nine Bs followed by nine Cs. If we print the data frame migraine we can see the format the data should be on in order to make side-by-side boxplots and perform ANOVA (note the output is cut-off between observations 6-25 for space purposes).
+#We can now make the boxplots by typing:
+boxplot(pain ~ drug, data=migraine)
+#From the boxplots it appears that the mean pain for drug A is lower than that for drugs B and C.
+#Next, the R function aov() can be used for fitting ANOVA models. The general form is aov(response ~ factor, data=data_name) where response represents the response variable and factor the varia ble that separates the data into groups. Both variables should be contained in the data frame called data_name. Once the ANOVA model is fit, one can look at the results using the summary() function. This produces the standard ANOVA table.
+
+bartlett.test(pain~drug, data=migraine)
+
+#Ex. Drug company example continued.
+results = aov(pain ~ drug, data=migraine) #anova(lm(pain~drug, data=migraine))
+summary(results)
+
+anova(lm(pain~drug, data=migraine))
+pairwise.t.test(pain, drug, p.adjust.method = "bonferroni")
+#The results state that the difference in means is not significantly different between drugs B and C (p-value = 1.00), but both are significantly different from drug A (p-values = 0.00119 and 0.00068, res pectively). Hence, we can conclude that the mean pain is significantly different for drug A. Another multiple comparisons procedure is Tukey's method (a.k.a. Tukey's Honest Significance #Test).
+
+#The function TukeyHSD() creates a set of confidence intervals on the differences between means with the specified family-wise probability of coverage. The general form is TukeyHSD(x, conf.level = 0.95) Here x is a fitted model object (e.g., an aov fit) and conf.level is the confidence level.
+#Ex.Drug company example continued.
+results = aov(pain ~ drug, data=migraine) # anova() or aov() -- equal var
+TukeyHSD(results, conf.level = 0.95) # pairwise t test
+#These results show that the B-A and C-A differences are significant (p=0.0011 and p=0.00065, respectively), while the C-B difference is not (p=0.97). This confirms the results obtained using Bonferroni co rrection.
+#Graphical display:to plot CIs from Tukey:
+plot(TukeyHSD(results, conf.level = 0.95))
+```
+
+Pairwise test:
+1. pairwise.t.test() with bonferroni
+2. tukey test TukeyHSD()
+
+**What to Do if the Assumptions Are Violated? (normality and equal variance)**
+
+Normality:
+1. Use a non-parametric alternative: If normality is violated, especially in small samples, you can use a Kruskal-Wallis test instead of ANOVA. The Kruskal-Wallis test is a non-parametric version of ANOVA and does not assume normality.  
+2. Data transformation: You can try transforming your data (e.g., logarithmic or square root transformations) to make the residuals more normally distributed.  
+
+Homogeneity:
+1. Use Welch’s ANOVA: If the assumption of equal variances is violated, Welch’s ANOVA can be used. It adjusts for unequal variances and is more reliable than traditional ANOVA when the homogeneity assumption is not met.  
+2. Use non-parametric tests: Like for normality violations, you can use the Kruskal-Wallis test if the variances are highly unequal.  
+
+
+The **Kruskal-Wallis test** is a non-parametric test used as an alternative to one-way ANOVA when the assumption of **normality** is **violated**. It compares the medians of three or more independent groups.
+
+The data does not need to follow a normal distribution.  
+The data should be independent.  
+It compares the ranks of the data instead of the actual data values.  
+
+```{r}
+# Example dataset: mtcars
+data(mtcars)
+kruskal.test(mpg ~ cyl, data = mtcars)
+# the p-value is less than 0.05 (or your chosen significance level), so we reject the null hypothesis and conclude that at least one group has a different distribution.
+
+# For Kruskal-Wallis Test: If the Kruskal-Wallis test is significant, you can perform Dunn’s Test as a post-hoc test to determine which groups differ.
+# install.packages("dunn.test")
+library(dunn.test)
+# Perform Dunn's test for pairwise comparisons
+dunn.test(mtcars$mpg, mtcars$cyl, method = "bonferroni")
+```
+
+**Welch's ANOVA** is a parametric alternative to one-way ANOVA that **does not assume equal variances** across groups. It’s used when the assumption of homogeneity of variances is violated.
+
+```{R}
+# Perform Welch's ANOVA
+oneway.test(mpg ~ cyl, data = mtcars, var.equal = FALSE)
+```
+
+**2. Two-way ANOVA**
+
+Two-Way ANOVA (also called factorial ANOVA) is a statistical test used to examine the effect of two independent categorical variables (factors) on a continuous dependent variable. It also helps to evaluate the interaction effect between these two factors.
+
+Main Effects:  
+The effect of each independent variable (factor) on the dependent variable, ignoring the other factor.
+
+Interaction Effect:  
+Whether the effect of one independent variable depends on the level of the other independent variable.
+
+```{r}
+library(ISwR)
+data(heart.rate)
+attach(heart.rate)
+heart.rate
+
+heart.rate <- data.frame(hr = c(96,110,89,95,128,100,72,79,100, 92,106,86,78,124,98,68,75,106,86,108,85,78,118,100,67,74, 104, 92,114,83,83,118,94,71,74,102), subj=gl(9,1,36), time=gl(4,9,36,labels=c(0,30,60,120)))
+gl(4,9,36)
+# gl() used to create a factor
+str(heart.rate)
+```
+
+The gl (generate levels) function is specially designed for generating patterned factors for balanced experimental designs. It has three arguments: the number of levels, the block length (how many times each level should repeat), and the total length of the result. The two patterns in the data frame are thus
+```{r}
+gl(9,1,36)
+gl(4,9,36,labels=c('y1','y2','y3','y4'))
+```
+
+
+```{r}
+attach(heart.rate)
+anova(lm(hr~subj+time))
+
+
+anova(lm(hr~subj))
+anova(lm(hr~time))
+```
+
+2.1 graphics for repeated measurements
+
+```{r}
+interaction.plot(time,subj,hr)
+```
+
+Example:
+
+```{r}
+# Simulating some data
+set.seed(123)
+data <- data.frame(
+  score = c(rnorm(30, 70, 10), rnorm(30, 75, 10), rnorm(30, 80, 10), rnorm(30, 85, 10)),
+  gender = rep(c("Male", "Female"), each = 60),
+  method = rep(c("Method_A", "Method_B"), times = 60)
+)
+head(data)
+
+# Fit a two-way ANOVA model
+two_way_anova <- aov(score ~ gender * method, data = data)
+summary(two_way_anova)
+# Main effect of gender: Tells you if there’s a significant difference in scores between males and females, ignoring the teaching method.
+# Main effect of method: Tells you if there’s a significant difference in scores between teaching methods, ignoring gender.
+# Interaction effect: Tells you if the effect of teaching method on scores differs between genders.
+# Perform Tukey's HSD post-hoc test
+TukeyHSD(two_way_anova)
+
+# Q-Q plot for normality of residuals
+qqnorm(residuals(two_way_anova))
+qqline(residuals(two_way_anova))
+# Install and load car package if not installed
+# install.packages("car")
+library(car)
+# Perform Levene's Test for homogeneity of variances
+leveneTest(score ~ gender * method, data = data)
+```
+
+2.2 ANOVA table in the regression analysis
+
+The primary goal of ANOVA in regression is to test whether the regression model provides a better fit to the data than a model with no predictors (the intercept-only model). Specifically, it answers the question: Do the predictors significantly explain the variation in the dependent variable?
+
+ANOVA decomposes the total variability in the response variable into two main parts:
+
+Sum of Squares for Regression (SSR): The variability explained by the regression model (i.e., the variation due to the predictors).  
+Sum of Squares for Error (SSE): The variability that is not explained by the model (i.e., the residual or error term).  
+Total Sum of Squares (SST): The total variability in the dependent variable, which is the sum of SSR and SSE.
+
+SST=SSR+SSE
+
+Significant F-statistic (p < 0.05): If the ANOVA result indicates a significant F-statistic, it means that at least one of the predictors in the model is significantly associated with the dependent variable. In this case, we conclude that the model as a whole is meaningful and provides explanatory power.
+
+```{r}
+data(thuesen)
+attach(thuesen) 
+lm.velo<-lm(short.velocity~blood.glucose) 
+summary(lm.velo)
+anova(lm.velo)
+# slope = 0 <--> blood.glucose is not significant in the linear model
+# velocity -- y
+# blood -- x
+# y = a+b*x
+# b = 0.02196 # p.value = 0.0479
+```
+
+Notice that the F test gives the same p-value as the t test for a zero slope. It is the same F test that gets printed at the end of the summary output Residual standard error is the square root of residual mean squares, namely 0.2167=sqrt(0.04696). R^2 is the proportion of the total sum of squares explained by the regression line, that is 0.1737=0.2073/(0.2073+0.9861)
+
+```{r}
+logret<- read.table("Lecture1_6logreturn.txt", header=T) 
+attach(logret)
+fit1<-lm(Pfizer~Intel)
+anova(fit1) # anove()
+summary(fit1)
+
+anova_model1 <- aov(Pfizer ~ Intel, data = data) #aov()
+summary(anova_model1)
+# The p-value for any of the factors (Intel, AmerExp) is GREATER than 0.05, it suggests that the factor has a NOT statistically significant effect on Pfizer’s returns.
+
+ 
+fit2<-lm(Pfizer~Intel+AmerExp)
+anova(fit2)
+
+anova_model2 <- aov(Pfizer ~ Intel + AmerExp, data = data)
+summary(anova_model2)
+
+
+# Check normality for anova_model1 (Pfizer ~ Intel)
+qqnorm(residuals(anova_model1))
+qqline(residuals(anova_model1))
+shapiro.test(residuals(anova_model1))
+
+# Check normality for anova_model2 (Pfizer ~ Intel + AmerExp)
+qqnorm(residuals(anova_model2))
+qqline(residuals(anova_model2))
+shapiro.test(residuals(anova_model2))
+```
+
+
+**Step-by-Step Guide of 1-way ANOVA**
+
+```{r}
+library(dunn.test)
+# Example data
+set.seed(123)
+data <- data.frame(
+  value = c(rnorm(30, mean=5), rnorm(30, mean=7), rnorm(30, mean=9)),
+  group = factor(rep(c("A", "B", "C"), each = 30))
+)
+# View the data
+head(data)
+```
+Normality Check ---> anova or kruskal-wallis
+
+```{r}
+# Perform Shapiro-Wilk test for each group
+by(data$value, data$group, shapiro.test)
+# If the p-value is greater than 0.05 for all groups, we can assume normality. Otherwise, the data is non-normal, and a non-parametric test like Kruskal-Wallis will be more appropriate.
+```
+1. ANOVA
+
+Equal Variance Check (for normal data only)
+
+```{r}
+# Perform Bartlett's test for equal variances
+bartlett.test(value ~ group, data = data)
+# If the p-value is greater than 0.05, the assumption of equal variances is satisfied. If not, we should consider using a non-parametric method or a Welch ANOVA.
+```
+
+Perform ANOVA (for normal data with equal variances)
+```{r}
+# Perform ANOVA
+anova_result <- aov(value ~ group, data = data)
+summary(anova_result)
+# the p-value is less than 0.05, it means there is a significant difference between groups.
+```
+
+Post-Hoc Tests for ANOVA
+```{r}
+# Tukey HSD Test
+tukey_result <- TukeyHSD(anova_result)
+print(tukey_result)
+
+# Alternatively, pairwise t-tests with p-value adjustment
+pairwise.t.test(data$value, data$group, p.adjust.method = "bonferroni")
+
+# These tests help identify which specific groups differ from each other after the overall ANOVA result.
+```
+
+2. Kruskal-Wallis Test (for non-normal data)
+
+If the data is not normally distributed, use the Kruskal-Wallis test, which is a non-parametric alternative to ANOVA.
+```{r}
+# Perform Kruskal-Wallis test
+kruskal_test <- kruskal.test(value ~ group, data = data)
+print(kruskal_test)
+# If the p-value is less than 0.05, there is a significant difference between the groups.
+
+# Perform Dunn's Test
+dunn_result <- dunn.test(data$value, data$group, method = "bonferroni")
+print(dunn_result)
+# Similar to Tukey or pairwise t-tests, this identifies which specific groups have significant differences.
+```
+
+Summary of Steps:
+
+1. Normality Check: Shapiro-Wilk test for normality.
+
+2-1. If Normal:  
+Bartlett’s test for equal variances.  
+3. Perform ANOVA if variances are equal.  
+4. Perform TukeyHSD or pairwise t-tests as post-hoc tests.  
+
+2-2. If Not Normal:  
+3. Perform Kruskal-Wallis test.  
+4. Perform Dunn’s test as a post-hoc test.  
+
+
+**Tabular data**
+
+1. Single proportions
+
+size N, p
+binom(N, p), mean = Np, variance = Np(1-p)
+
+Example 1.
+39 of 215 patients are observed to have asthma
+To test the H0: the probability of a random patient having asthma is 0.15
+
+```{r}
+# H0: p = p0
+# H0: p = 0.15
+prop.test(39, 215, 0.15) # prop.test(# of successes, # of trials, p0)
+binom.test(39, 215, 0.15)
+
+x = 1:15
+# probability of x larger than 8 is 0.5
+sum(x>8)
+length(x)
+prop.test(7, 15, 0.5)
+```
+
+2. r * c tables
+
+```{r}
+# H0: the distribution over columns is the same for each row, or vice versa if the column totals were fixed
+# the rows and columns are independent
+caff.marital <-matrix(c(652,1537,598,242,36,46,38,21,218,327, 106,67), nrow=3,byrow=T)
+colnames(caff.marital) <- c("0","1-150","151-300",">300") 
+rownames(caff.marital) <- c("Married","Prev.married","Single")
+caff.marital # value -- frequency # r -- marital status # c--caffeine consumption
+
+chisq.test(caff.marital) # --- caffeine consumption and the marital status are not independent
+chisq.test(caff.marital)$expected
+chisq.test(caff.marital)$observed
+
+library(ISwR)
+data(juul) 
+attach(juul) 
+chisq.test(tanner,sex) # df = (5-1)*(2-1) = 4
+```

@@ -1,0 +1,115 @@
+---
+title: "Linear Regression"
+author: "Your name"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+# Install packages 
+
+```{r}
+library(MASS)
+library(tidyverse)
+library(caret)
+library(glmnet)
+```
+
+## Exercise 1
+
+```{r}
+data <- read.csv('Galton.csv')
+data$Midparent = (data$Father + data$Mother) / 2
+head(data)
+# characteristic variables should be transformed into dummy variables if using the lm() function
+```
+
+### (a) Predict daughter’s height using the midparent height
+
+
+```{r}
+daughters = subset(data, Gender == "F")
+head(daughters)
+
+model1 <- lm(Height ~ Midparent, data=daughters)
+summary(model1)
+
+daughters$pred <- model1 %>% predict(daughters)
+head(daughters)
+
+# compare Height (observed y) and pred (predicted y)
+sse_daughters <- sum((daughters$Height - daughters$pred)^2)
+print(sse_daughters)
+
+mse_daughters <-sse_daughters/(nrow(daughters)-2)
+print(mse_daughters)
+print(nrow(daughters)-2)
+# Mean Squared Error (MSE) in regression is used to measure the average squared difference between the actual and predicted values.
+# It quantifies the model’s performance, with lower values indicating better predictive accuracy.
+rmse_dughters <- sqrt(mse_daughters)
+print(rmse_dughters)
+# A useful benchmark is to compare MSE with the variance of the target variable or to compute Root Mean Squared Error (RMSE) to interpret errors in the original unit.
+```
+
+### (b) Predict son’s height using the midparent height.
+
+```{r}
+sons = subset(data, Gender == "M")
+head(sons)
+
+model2 <- lm(Height ~ Midparent, data=sons)
+summary(model2)
+
+sons$pred <- model2 %>% predict(sons)
+head(sons)
+
+sse_sons <- sum((sons$Height - sons$pred)^2)
+print(sse_sons)
+
+mse_sons <-sse_sons/(nrow(sons)-2)
+print(mse_sons)
+print(nrow(sons)-2)
+
+rmse_sons <- sqrt(mse_sons)
+print(rmse_sons)
+```
+
+### Exercise 2 general linear model 
+
+```{r}
+new_data <- data[, c("Father", "Mother", "Gender", "Height")]
+
+#rename the M and F to 1 and 0
+new_data$Gender=ifelse(new_data$Gender=="M",1,0)
+head(new_data)
+new_data$Gender<-factor(new_data$Gender)
+head(new_data)
+
+modelGLM <-glm(Height ~., data=new_data)
+summary(modelGLM)
+
+new_data$pred <- modelGLM %>% predict(new_data)
+
+new_daughters= subset(new_data, Gender == 0)
+new_sons= subset(new_data, Gender == 1)
+
+sse_glm_daughters <- sum((new_daughters$Height - new_daughters$pred)^2)
+print(sse_glm_daughters)
+mse_glm_daughters <-sse_glm_daughters/(nrow(new_daughters)-2)
+print(mse_glm_daughters)
+sqrt(mse_glm_daughters)
+
+sse_glm_sons <- sum((new_sons$Height - new_sons$pred)^2)
+print(sse_glm_sons)
+mse_glm_sons <-sse_glm_sons/(nrow(new_sons)-2)
+print(mse_glm_sons)
+sqrt(mse_glm_sons)
+```
+
+### Exercise 3: Comparison of the two models for estimating daughters' height
+#### We can compare the SSE (or MSE or RMSE) between the two models
+#### GLM is better than the simple linear regression model because 1705.501 < 1715.684
+
+### Exercise 4: Comparison of the two models for estimating sons' height
+#### We can compare the SSE (or MSE or RMSE) between the two models
+#### GLM is better than the simple linear regression model because 2443.661 < 2449.981

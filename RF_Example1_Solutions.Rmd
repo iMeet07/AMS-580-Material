@@ -1,0 +1,148 @@
+---
+title: "Solutions"
+author: "Weihao Wang"
+date: "2026-04-05"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+## Load packages
+
+```{r message=FALSE, warning=FALSE}
+if (!requireNamespace("caret", quietly = TRUE)) install.packages("caret")
+if (!requireNamespace("randomForest", quietly = TRUE)) install.packages("randomForest")
+
+library(caret)
+library(randomForest)
+
+banknote <- read.csv("banknote.csv")
+
+# Remove missing values if any
+banknote <- na.omit(banknote)
+
+# Convert response to factor for classification
+banknote$class <- factor(banknote$class, levels = c(0, 1))
+
+# Check data structure
+str(banknote)
+summary(banknote)
+```
+
+Q1
+```{r}
+set.seed(123)
+train_index <- createDataPartition(banknote$class, p = 0.75, list = FALSE)
+
+train.data <- banknote[train_index, ]
+test.data  <- banknote[-train_index, ]
+
+nrow(train.data)
+nrow(test.data)
+prop.table(table(train.data$class))
+prop.table(table(test.data$class))
+```
+
+Q2
+```{r}
+set.seed(123)
+
+tune_result <- tuneRF(
+  x = train.data[, setdiff(names(train.data), "class")],
+  y = train.data$class,
+  stepFactor = 1,
+  improve = 0.01,
+  trace = TRUE,
+  plot = FALSE
+)
+
+tune_result
+best_mtry <- tune_result[which.min(tune_result[, 2]), 1]
+best_mtry
+# Every split in each tree
+# randomly select 2 predictors for candicates
+
+set.seed(123)
+
+rf_model <- randomForest(
+  class ~ .,
+  data = train.data,
+  mtry = best_mtry,
+  importance = TRUE
+)
+
+rf_model
+
+# OOB confusion matrix
+oob_conf <- rf_model$confusion
+oob_conf
+
+oob_cm <- oob_conf[, 1:2]
+TP <- oob_cm["1", "1"]   # forged predicted as forged
+FN <- oob_cm["1", "0"]   # forged predicted as genuine
+TN <- oob_cm["0", "0"]   # genuine predicted as genuine
+FP <- oob_cm["0", "1"]   # genuine predicted as forged
+
+oob_sensitivity <- TP / (TP + FN)
+oob_specificity <- TN / (TN + FP)
+oob_accuracy <- (TP + TN) / sum(oob_cm)
+
+oob_sensitivity
+oob_specificity
+oob_accuracy
+```
+
+Q3
+```{r}
+test_pred <- predict(rf_model, newdata = test.data)
+
+test_cm <- confusionMatrix(test_pred, test.data$class, positive = "1")
+test_cm
+
+test_cm$table
+
+test_sensitivity <- test_cm$byClass["Sensitivity"]
+test_specificity <- test_cm$byClass["Specificity"]
+test_accuracy <- test_cm$overall["Accuracy"]
+
+test_sensitivity
+test_specificity
+test_accuracy
+```
+
+Q4
+```{r}
+varImpPlot(rf_model, type = 1, main = "Variable Importance: MeanDecreaseAccuracy")
+# MeanDecreaseAccuracy measures how much the prediction accuracy decreases when a variable is permuted or excluded. A larger value indicates a more important variable.
+
+varImpPlot(rf_model, type = 2, main = "Variable Importance: MeanDecreaseGini")
+# MeanDecreaseGini measures how much a variable contributes to decreasing node impurity across the forest. A larger value indicates a more important variable for classification splits.
+```
+
+Q5
+```{r}
+mda <- randomForest::importance(rf_model, type = 1)[, "MeanDecreaseAccuracy"]
+mda
+
+mda_pct <- 100 * mda / sum(mda)
+mda_pct <- round(mda_pct, 2)
+mda_pct
+
+importance_percent <- data.frame(
+  Variable = names(mda_pct),
+  MeanDecreaseAccuracy = round(mda, 4),
+  Percentage = mda_pct
+)
+
+importance_percent[order(-importance_percent$Percentage), ]
+# The table above shows the importance of each variable based on MeanDecreaseAccuracy, expressed as a percentage of the total importance.
+```
+
+Q6
+
+For classification problems in random forest, a common default is:
+mtry = sqrt(p), where p is the number of predictors
+```{r}
+sqrt(25)
+```

@@ -1,0 +1,115 @@
+---
+title: "Model Diagnosis"
+author: "Weihao Wang"
+date: "2025-02-10"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+## Model Diagnostics for Linear Regression in R
+
+To check the assumptions and performance of a linear regression model, we typically assess:
+
+1. Linearity
+2. Homoscedasticity (Constant Variance)
+3. Normality of Residuals
+4. Independence of Errors
+5. Multicollinearity
+
+```{r}
+library(MASS)
+library(tidyverse)
+library(caret)
+library(glmnet)
+library(leaps)
+
+# Use variables except G1 and G2 to predicto G3
+# y: G3
+# x: all the other variables
+data <- read.csv('math.csv', sep = ';')
+data <- subset(data, select = - c(G1,G2))
+str(data)
+
+set.seed(123)
+training.samples <- data$G3 %>% createDataPartition(p = 0.75, list = FALSE) # caret pkg
+# Uses createDataPartition() from the caret package to split the data into training (75%) and test (25%) sets.
+# The %>% operator (pipe) is from the tidyverse pkg
+train.data  <- data[training.samples, ]
+test.data <- data[-training.samples, ]
+```
+
+```{r}
+fit <- lm(G3 ~ ., data = train.data)
+```
+
+# A. Residual Plots for Linearity & Homoscedasticity
+
+1. Residuals should be randomly scattered (no clear pattern).  
+2. The spread should be consistent across all fitted values.
+```{r}
+plot(fit, which = 1)  # Residuals vs Fitted
+# If categorical variables are treated as numeric, the model may create artificial "steps" in residuals, leading to parallel lines.
+# If some predictors take only a few distinct values, residuals will align along specific horizontal levels.
+# If some predictors are highly correlated, it can cause systematic patterns in residuals.
+```
+
+# B. Check Normality of Residuals
+
+Residuals should follow a normal distribution for valid hypothesis tests.
+
+```{r}
+plot(fit, which = 2)  # Normal Q-Q plot
+# both ends of the plot fall below the straight diagonal line, this indicates heavy-tailed (platykurtic) residuals
+# Residuals may have Low Kurtosis ---> Try a Box-Cox transformation to adjust distribution
+# or use rlm() robust regression from MASS
+fit_robust <- rlm(G3 ~ ., data = train.data)
+summary(fit_robust) # robust regression methods reduce the influence of extreme values
+
+shapiro.test(residuals(fit))
+# Residuals deviate from normality (consider transformations).
+```
+
+# C. Check Homoscedasticity (Constant Variance)
+
+Variance of residuals should be constant across fitted values.
+
+```{r}
+library(lmtest)
+bptest(fit)  # Breusch-Pagan test against heteroskedasticity
+# p > 0.05 → No heteroscedasticity (good).
+# p < 0.05 → Heteroscedasticity detected (consider transformations like log or Box-Cox).
+# E.g.
+fit_trans <- lm(log(G3) ~ ., data = train.data)
+# If the dependent variable has a skewed distribution, applying a log transformation might help
+
+
+library(sandwich)
+library(lmtest)
+coeftest(fit, vcov = vcovHC(fit, type = "HC1")) # Use heteroscedasticity-robust standard errors, which correct for heteroscedasticity without needing to transform the data.
+```
+
+# D. Check for Autocorrelation (Independence of Errors)
+
+Residuals should not be correlated over time or order.
+
+```{r}
+library(car)
+durbinWatsonTest(fit)
+# p > 0.05 → No significant autocorrelation (good).
+# p < 0.05 → Autocorrelation detected (consider time-series models).
+```
+
+# E. Check for Multicollinearity
+
+High correlation between predictors can distort coefficient estimates
+
+```{r}
+library(car)
+vif(fit)
+# GVIF (Generalized Variance Inflation Factor): Used for categorical variables (factors with multiple levels).
+# GVIF^(1/(2*Df)): Adjusted VIF for easier interpretation when a factor has more than one degree of freedom (Df).
+# VIF < 5: No severe multicollinearity (good).
+# VIF > 10: Strong multicollinearity (consider removing or combining variables).
+```
+

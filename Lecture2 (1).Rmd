@@ -1,0 +1,447 @@
+---
+title: "Review of R: Lecture 2"
+author: "Weihao Wang"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+**1. Probability and distributions**
+
+1.1. Random sampling
+
+Random sampling is a technique used in statistics and research to select a subset (or sample) from a larger population in such a way that each member of the population has an equal chance of being included in the sample. This method is foundational to inferential statistics, where researchers aim to make generalizations or draw conclusions about a population based on the sample.
+
+In R, you can simulate these situations with the sample function. If you want to pick five numbers at random from the set 1:40, then you can write
+
+```{r}
+# randomly selects 5 unique numbers from the sequence 1 to 40
+sample(1:40, 5, replace = T, prob=NULL)
+
+# simulates the flipping of a coin 10 times, where "H" represents heads and "T" represents tails
+sample(c("H","T"), 10, replace=T)
+
+# simulates 10 independent trials where the probability of "succ" (success) is 0.9, and the probability of "fail" (failure) is 0.1.
+set.seed(6789)
+sample(c("succ", "fail"), 10, replace=T, prob=c(0.9, 0.1))
+```
+
+1.2. Probability calculations and combinatorics
+
+In R, the choose function can be used to calculate the number of ways to choose 5 numbers out of 40.
+
+```{r}
+# calculates the number of combinations of 40 items taken 5 at a time
+choose(40,5)
+
+# manually calculates the number of combinations by computing the product of the top 5 terms from 40 down to 36, and then dividing by the factorial of 5
+prod(40:36)/prod(1:5)
+factorial(40)/factorial(5)/factorial(35)
+```
+
+1.3. Discrete and continuous distributions
+
+Discrete: Binomial distribution (binom), geometric distribution (geom), Poisson distribution (pois), ...
+
+Continuous: Normal (norm), Beta (beta), Gamma (gamma), log-normal (lnorm), Cauchy (cauchy), Chi-squared (chisq), Exponential (exp), F (f), Logistic (logis), Negative binomial (nbinom), Student's t (t), Uniform (unif), ...
+
+Prefix the name given here by 'd' for the density, 'p' for the CDF, 'q' for the quantile function and 'r' for simulation (random deviates). The first argument is x for dxxx, q for pxxx, p for qxxx and n for rxxx. We next discuss and give some examples on these functions.
+
+**Distributions in R**
+beta: beta - rbeta dbeta pbeta qbeta
+binomial: binom
+cauchy: cauchy
+Chi-square: chisq
+exponential: exp
+F: f
+gamma: gamma
+geometric: geom
+log-normal: lnorm
+logistic: logis
+Negative binomial: nbinom
+Normal: norm
+Poisson: pois
+Student's t: t
+uniform: unif
+Weibull: weibull
+
+1) Densities (PDF, probability density function)
+
+```{r}
+x <- seq(-4,4,0.1)
+plot(x,dnorm(x), type = 'l')
+curve(dnorm(x), from=-4, to=4)
+# here dnorm() computes the probability density function (PDF) of the standard normal distribution
+# curve() is a function designed specifically to plot mathematical functions
+# They can produce the same bell-shaped curve of the standard normal distribution
+
+x <- seq(0,1,0.01) 
+plot(x,dbeta(x,4,5),type="l") 
+curve(dbeta(x,4,5), from=0, to=1)
+
+x <- seq(0,100,1) 
+plot(x,dchisq(x,40),type="l") 
+curve(dchisq(x,40), from=0, to=100)
+
+x <- seq(0,100,1) 
+plot(x,dgamma(x,30),type="l") 
+curve(dgamma(x,30), from=0, to=100)
+```
+
+For discrete distributions, where variables can take on only distinct values, it is preferable to draw a pin diagram, here for the binomial distribution with n = 50 and p = 0.33:
+
+```{r}
+x <- 0:50
+plot(x,dbinom(x,size=50,prob=.33),type="h") 
+#curve(dbinom(x,size=50,prob=.33), from=0, to=50)
+# here dbinom() calculates the binomial probability mass function (PMF) for each value in x with 50 trials (size=50) and a success probability of 0.33 (prob=.33).
+
+x <- 0:50 
+plot(x,dpois(x,10),type="h")
+```
+
+2) CDF, Cumulative distribution functions
+d-density-pdf and pmf
+p-cumulative density-cdf
+
+```{r}
+pnorm(160,mean=132,sd=13)
+# This calculates the cumulative probability (or the area under the curve) to the left of 160 for a normal distribution with a mean of 132 and a standard deviation of 13
+pbinom(16,size=20,prob=.5)
+pbeta(0.8,4,5)
+pchisq(100,40)
+pchisq(10,40)
+pgamma(100,30)
+pgamma(10,30)
+ppois(2,10)
+
+x <- seq(-4,4,0.1) 
+plot(x,pnorm(x),type="l") 
+curve(pnorm(x), from=-4, to=4)
+
+x <- 0:50
+plot(x,pbinom(x,size=50,prob=.33)) 
+#curve(pbinom(x,size=50,prob=.33), from=0, to=50)
+```
+
+3) Quantiles, inverse cumulative distribution function
+
+In statistics, a quantile is the value x corresponding to a specific cumulative distribution function (CDF) value, often denoted as p. This is essentially the inverse of finding the probability for a given value in a distribution.
+
+```{r}
+qnorm(0.5)
+# the 50th percentile (median) of the standard normal distribution (mean = 0, standard deviation = 1)
+qnorm(0.5,1,2) #qnorm(0.5, sd = 2, mean = 1)
+qnorm(0.025)
+
+xbar=83
+sigma=12
+n<-5
+sem<-sigma/sqrt(n)
+sem 
+
+xbar+sem*qnorm(0.025) 
+xbar+sem*qnorm(0.975) 
+xbar-sem*qnorm(0.025)
+qbinom(0.5,size=20,prob=.5) 
+
+qbeta(0.5,4,5) 
+qbeta(1,4,5)
+qchisq(0.5,40)
+qchisq(1,40)
+qgamma(0.5,30)
+qgamma(1,30)
+qpois(0.5,10)
+qpois(1,10)
+```
+
+4) Random numbers
+
+Computer generates sequences of “pseudo-random” numbers, which for practical purposes behave as if they were drawn randomly
+
+```{r}
+rnorm(10,mean=7,sd=5)
+# This generates 10 random numbers from a normal distribution with a mean of 7 and a standard deviation of 5
+rbinom(10,size=20,prob=.5) 
+rbeta(10,4,5)
+rchisq(30,40)
+rgamma(50,30)
+rpois(20,10)
+```
+
+**2. Descriptive statistics and graphics**
+
+2.1. Summary statistics for a single group
+
+It is easy to calculate simple summary statistics with R. Here is how to calculate the mean, standard deviation, variance, and median.
+
+```{r}
+x <- rnorm(50)
+
+mean(x)
+sd(x) # standard deviation
+var(x) # variance
+sd(x)^2
+median(x)
+quantile(x)
+pvec <- seq(0,1,0.1)
+quantile(x,pvec)
+quantile(x,c(0.1,0.4))
+
+library(ISwR)
+data(juul)
+dim(juul)
+head(juul)
+juul[1:10,]
+
+attach(juul)
+names(juul)
+mean(igf1)
+igf1[1:100]
+mean(igf1,na.rm=T)
+# na.rm=T: This argument tells R to remove any NA (missing) values before calculating the mean. If this argument is not included and there are NA values in the data, the result would be NA instead of the actual mean.
+sum(igf1)
+sum(igf1,na.rm=T)
+sum(is.na(igf1)) # number of missing values
+sum(!is.na(igf1)) # number of nonmissing values
+
+
+summary(igf1) # important
+summary(juul)
+
+str(juul) # important
+# The str() function in R is used to display the structure of an R object in a compact and readable way. It provides an overview of the contents of the object, including the type of object, the length or dimensions, and the type and structure of its elements.
+juul <- transform(juul,sex=factor(sex,labels=c("f","m")), menarche=factor(menarche, labels=c("no","yes")), tanner=factor(tanner, labels=c("one","two","three","four","five")))
+# converting specific variables into factors with labeled levels
+str(juul)
+
+juul$sex = factor(juul$sex, labels=c("female","male"))
+
+str(juul)
+```
+
+2.2 Graphic display of distributions --- Histograms, empirical distributions, Q-Q plot, Boxplot
+
+```{r}
+x<-rnorm(50) 
+hist(x)
+# you can modify the plot by adjusting the parameters of the hist() function
+hist(x, main="Histogram of Normally Distributed Data", xlab="Value", ylab="Frequency", col="lightblue", border="black")
+
+x<-c(1.5,2.5,3.5,4.5,5.5,6.5,8.5,9.5,12.5) # midpoints of certain intervals
+y<-c(5,7,12,2,1,4,14,2,3) # frequencies
+z<-rep(x,y) # generates the raw data
+brk<-c(0,1,2,3,5,7,9,10,11,13) # breakpoints for the bins in the histogram
+hist(z,breaks=brk)
+
+### Empirical distribution function
+x<-rnorm(100)
+n <- length(x)
+
+
+plot(sort(x),(1:n)/n,type="s",ylim=c(0,1))
+# This plots the empirical cumulative distribution function (ECDF) of the data x
+# type="s": Draws the plot as a step function, which is typical for ECDFs
+plot(sort(x),(1:n)/n,type="l",ylim=c(0,1))
+# type="l" to draw the plot as a continuous line instead of a step function
+```
+
+Empirical cumulative distribution function is defined as the fraction of data smaller than or equal to x. That is , if x is the kth smallest observation, the the proportion k/n of the data is smaller than or equal to x.
+
+Q-Q Plot: A Q-Q plot compares the quantiles of your sample data against the quantiles of a theoretical distribution. If the data comes from the normal distribution, the points in the Q-Q plot will lie approximately along a straight line.
+
+```{r}
+#qq plot 
+qqnorm(x)
+qqline(x, col = "red")
+# Points on the Line: If the points lie close to the line, your data is likely normally distributed
+```
+
+A **boxplot** is a graphical representation of a dataset's distribution that provides a summary of the data's central tendency, spread, and potential outliers.
+
+The box represents the interquartile range (IQR), which is the range within which the middle 50% of the data falls.  
+IQR = Q3-Q1
+
+The lines (whiskers) extending from the box indicate the range of the data that falls within 1.5 times the IQR from the lower and upper quartiles.  
+Q1-1.5IQR and Q3+1.5IQR
+
+```{r}
+# Box plot
+data(IgM) # loads the IgM dataset into your R environment
+
+par(mfrow=c(1,2)) 
+# display two plots side by side (1 row, 2 columns)
+boxplot(IgM) # shows the median, quartiles, and potential outliers
+boxplot(log(IgM))
+
+par(mfrow=c(1,1))
+```
+
+mfrow graphical parameter should read as” multiframe, rowwise, 1*2 layout” individual plots are organized in 1 row and 2 columns.
+
+```{r}
+par(mfrow=c(1,2))
+boxplot(log(IgM))
+boxplot(IgM)
+
+par(mfcol=c(1,4))
+boxplot(log(IgM))
+boxplot(IgM)
+boxplot(sin(IgM))
+boxplot(cos(IgM))
+
+par(mfrow=c(2,2))
+boxplot(log(IgM))
+boxplot(IgM)
+boxplot(sin(IgM))
+boxplot(cos(IgM))
+
+par(mfrow = c(1,1))
+```
+
+Boxplot for multiple groups:
+If you have data divided into different groups, you can create boxplots for each group in a single plot:
+
+```{r}
+set.seed(123)
+group1 <- rnorm(100, mean=5)
+group2 <- rnorm(100, mean=7)
+group3 <- rnorm(100, mean=9)
+
+# Combine the data into a list
+data_frame <- data.frame(Group1 = group1, Group2 = group2, Group3 = group3)
+str(data_frame)
+
+# Create the boxplot
+boxplot(data_frame, main="Boxplot of Different Groups", ylab="Values", col=c("lightblue", "lightgreen", "lightpink"))
+```
+
+2.3. Summary statistics by groups
+
+```{r}
+data(red.cell.folate)
+attach(red.cell.folate)
+head(red.cell.folate)
+
+xbar=tapply(folate,ventilation,mean)
+# the mean of the folate variable for each level of the ventilation variable
+s=tapply(folate,ventilation,sd)
+# the standard deviation of the folate variable for each level of the ventilation variable
+n=tapply(folate,ventilation,length)
+# the number of observations
+cbind(mean=xbar,std.dev=s,n=n)
+
+data(juul)
+tapply(igf1,tanner,mean)
+tapply(igf1,tanner,mean,na.rm=T)
+#na.rm = T --- deal with those missing values
+```
+
+na.rm=T as a parameter to mean to make it exclude the missing values.
+
+4.4. Graphics for grouped data
+
+Histograms
+```{r}
+data(energy)
+head(energy)
+attach(energy)
+expend.lean<-expend[stature=="lean"]
+expend.obese<-expend[stature=="obese"]
+
+par(mfrow=c(2,1))
+hist(expend.lean,breaks=10,xlim=c(5,13),ylim=c(0,4),col="white")
+hist(expend.obese,breaks=10,xlim=c(5,13),ylim=c(0,4),col="grey")
+par(mfrow=c(1,1))
+```
+
+Parallel boxplot
+```{r}
+boxplot(expend~stature, col=c("lightblue", "lightgreen"))
+boxplot(expend.lean , expend.obese, col=c("lightblue", "lightgreen"))
+```
+
+2.5. Tables
+
+Categorical data are usually described in the form of tables. A two-way table can be entered as a matrix object.
+
+A two-way **contingency table** (also known as a cross-tabulation or crosstab) is a type of table in statistics that displays the frequency distribution of two categorical variables. It allows you to examine the relationship between these two variables by showing how often each combination of categories occurs.
+
+Rows: Represent the categories of one variable.  
+Columns: Represent the categories of the other variable.  
+Cells: Contain the count or frequency of observations that fall into the corresponding category combination.
+
+```{r}
+caff.marital <- matrix(c(652,1537,598,242,36,46,38,21,218, 327,106,67), nrow=3, byrow=T)
+colnames(caff.marital) <- c("0","1-150","151-300",">300")
+rownames(caff.marital) <- c("Married","Prev.married","Single")
+caff.marital
+```
+
+Furthermore, you can name the row and column names as follows. This is particularly useful if you are generating many tables with similar classification criteria.
+
+```{r}
+names(dimnames(caff.marital)) <- c("marital","consumption") # 1-row, 2-col
+caff.marital
+```
+
+Like any matrix, a table can be transposed with the t function:
+```{r}
+t(caff.marital)
+```
+
+Exercise: Construct the following table which summarize the number of people smoking and nonsmoking in a class.
+    smoking   nonsmoking
+male   23       45
+female 34       54
+
+```{r}
+# If you do not know the counts/frequencies of the category combinations
+# use table() function on the raw data:
+gender <- c("Male", "Female", "Male", "Female", "Male", "Female")
+product <- c("A", "B", "A", "C", "B", "B")
+table(gender, product)
+```
+
+```{r}
+data(juul)
+attach(juul)
+table(sex) # 1 variable - counting/frequency
+table(sex,menarche)
+table(menarche,tanner)
+table(sex,menarche,tanner)
+
+table(tanner,sex)
+margin.table(table(tanner,sex),1) 
+# the marginal totals of a contingency table
+# 1: across the rows
+margin.table(table(tanner,sex),2)
+prop.table(table(tanner,sex),1)
+# calculate the row-wise proportions of a contingency table
+prop.table(table(tanner,sex),2)
+table(tanner,sex)/sum(table(tanner,sex))
+# calculates the proportion of the total observations in a contingency table, rather than focusing on row-wise or column-wise proportions
+```
+
+2.6. Graphical display of tables
+
+1) barplot
+```{r}
+barplot(prop.table(caff.marital),legend.text=rownames(caff.marital),col=c("white","blue","green","black "))
+```
+
+2) dotcharts
+```{r}
+dotchart(t(caff.marital))
+dotchart(caff.marital)
+```
+
+3) Pie charts
+```{r}
+opar<- par (mfrow=c(2,2), mex=0.8, mar=c(1,1,2,1))
+slices<- c("white", "grey80", "grey50", "black") 
+pie(caff.marital["Married",], main="Married", col=slices) 
+pie(caff.marital["Prev.married",], main="Previously married", col=slices) 
+pie(caff.marital["Single",], main="Single", col=slices)
+par(opar)
+```

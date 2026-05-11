@@ -1,0 +1,696 @@
+---
+title: "Review of R: Lecture 1"
+author: "Weihao Wang"
+output:
+  pdf_document: default
+  word_document: default
+  html_notebook: default
+---
+
+
+**1. Installation of R and packages**  
+
+The way to obtain R is to download it from one of the CRAN (Comprehensive R Archive Network) sites. The main site is  
+https://cran.r-project.org/  
+You can simply go to this website and click "Download R" for your specific system.  
+
+Then you can download the free R IDE (Integrated Development Environment), R studio, from the following link.  
+https://www.rstudio.com/products/rstudio/download/  
+
+**Packages installation**  
+For example, to install a package named ISwR, which includes many useful datasets, you can do so if you're connected to the Internet. Simply start R and use the convenient menu interfaces available in the Windows or Macintosh versions.   
+Tools – Install Packages  
+On other platforms, you can type  
+**install.packages("ISwR")**  
+
+Then you may need to load the package you need for your work at the command prompt, e.g.,  
+**library(ISwR)**
+
+The **tinytex::install_tinytex()** function in R is used to install TinyTeX, a lightweight, portable, and easy-to-maintain LaTeX distribution. TinyTeX is particularly useful for users who need to compile R Markdown documents to PDF format or use LaTeX within R.
+
+**2. Calculating an arithmetic expression**  
+
+One of the simplest possible tasks in R is to enter an arithmetic expression and receive a result.  
+```{r}
+exp(-2)
+# The value of e^(-2) is approximately 0.1353353.
+```
+We can use the pound sign (#) to add comments in R, making it easier for others to understand the code and for ourselves to remember it.  
+
+In RMarkdown, you need to write your R code inside code chunks that are delimited by triple backticks with {r}. This tells RMarkdown that the enclosed content is R code that should be executed when the document is knit.  
+
+**Exercises**  
+Computing 1) log(3.14), log10(3.14), log(3.14, 20) 2) sin(2.1) 3) 3^2.55 4) sqrt(38)  
+
+The [1] in front of the result is part of R’s way of printing numbers and vectors. It is not useful here, but it becomes so when the result is a longer vector. The number in brackets is the index of the first number on that line. Consider the case of generating 20 random numbers from a normal distribution:
+```{r}
+rnorm(20)
+```
+Use "?rnorm" to read the help document of the function rnorm.  
+And we can find that it is used to generate normally distributed random samples.
+```{r}
+x = rnorm(n = 50, mean = 5, sd = 2)
+x
+```
+
+**3. Assignments**  
+
+To assign the value 2 to the variable x, you can enter
+```{r}
+x <- 2
+x
+```
+
+```{r}
+x = 2
+x
+```
+
+```{r}
+2 -> x
+x
+```
+
+```{r}
+y <- x
+y
+```
+Here, the arrow (->) signifies assigning one value to another. For example, x -> y means assigning the value of x to y.
+
+**4. Vectorized arithmetic**  
+
+The construct c(…) is used to define vectors.  
+A vector in R is a sequence with an index starting from 1, and it can store either numeric or character values.
+```{r}
+weight.1 = c(60, 72, 57, 90, 95, 72)
+weight.1
+(weight.2 = c(60, 72, 57, 90, 95, 72, 88))
+# You can use parentheses to make R display the values.
+c(weight.1, weight.2)
+```
+You can do calculations with vectors just like ordinary numbers, as long as they are of the same length.
+```{r}
+weight <- c(60, 72, 57, 90, 95, 72)
+height <- c(1.75, 1.80, 1.65, 1.90, 1.74, 1.91)
+bmi <- weight/height^2
+bmi
+```
+It is in fact possible to perform arithmetic operations and calculate some basic statistics on vectors of different length.
+```{r}
+bmi^2
+length(bmi)
+sum(bmi)
+mean(bmi)
+min(bmi)
+max(bmi)
+sd(bmi)
+var(bmi)
+summary(bmi)
+```
+
+**Exercise:**   
+(1) Compute the (A) median and (B) variance of ‘weight’   
+(2) Compute the (A) covariance and (B) correlation of ‘weight’ and ‘height’   
+(3) Implement the following operations:
+```{r}
+xbar <- sum(weight)/length(weight)
+weight - xbar
+sd(weight)
+sqrt(sum((weight - xbar)^2)/(length(weight) - 1))
+cor(weight,height)
+cov(weight,height)/sd(weight)/sd(height)
+```
+
+**5. Standard statistical procedures**  
+
+You could run standard T-test to assess whether the six persons’ BMI can be assumed to have mean 22.5 given that they come from a normal distribution.
+
+```{r}
+t.test(bmi, mu=22.5, alternative = "greater")
+```
+Here we are performing a one-sample t-test to determine whether the mean of the bmi (body mass index) values is significantly greater than a hypothesized value 22.5.
+
+Breakdown of the Code:
+t.test(): This is the function used to perform a t-test in R.  
+bmi: This is the vector of numeric values that represents the sample data.  
+mu = 22.5: This specifies the null hypothesis mean (mu). The test is checking whether the mean of the bmi data is significantly different from 22.5.  
+alternative = "greater": This specifies the alternative hypothesis.  
+
+The t-test will calculate the t-statistic and the corresponding p-value to determine whether to reject the null hypothesis. If the p-value is small (typically less than 0.05), you would reject the null hypothesis in favor of the alternative, concluding that the mean BMI is significantly greater than 22.5.
+
+```{r}
+t.test(bmi, mu=22.5, alternative = "less")
+t.test(bmi, mu=22.5, alternative = "two.sided")
+t.test(bmi, mu=22.5)
+t.test(bmi, mu=22.5, conf.level = .99)
+```
+
+**6. Graphics**
+
+A standard x-y plot has an x and a y title generated from the expressions being plotted.
+
+```{r}
+x <- runif(50,0,2) # random sample of an Uniform distribution
+y <- runif(50,0,2)
+plot(x, y, main="Main title", sub="subtitle", xlab="x-label", ylab="y-label")
+```
+
+Inside the plotting region, you can place points and lines that are either specified in the plot call or added later with points and lines. You can also place a text with
+
+```{r}
+plot(x, y, main="Main title", sub="subtitle", xlab="x-label", ylab="y-label")
+text(0.6,0.6,"point (0.6, 0.6)")
+abline(a = 0, b = 1) # y = a+b*x
+```
+
+```{r}
+plot(height, weight)
+
+plot(height, weight, pch=2)
+x <- c(1.65, 1.70, 1.75, 1.80, 1.85, 1.90)
+lines(x, 22.5 * x^2)
+```
+
+The pch argument specifies the plotting character or symbol used in the plot.  
+pch=2 uses a triangle symbol for the points.  
+This line adds a line to the existing plot.  
+
+Combining plots: Consider overlaying a histogram with a normal density
+
+```{r}
+x <- rnorm(100)
+hist(x,freq=F)
+curve(dnorm(x),add=T)
+```
+
+```{r}
+# Load the ggplot2 package
+# install using install.packages('ggplot2')
+library(ggplot2)
+
+# Create a data frame from the height and weight vectors
+data <- data.frame(height, weight)
+
+# Create the scatter plot using ggplot
+ggplot(data, aes(x = height, y = weight)) +
+  geom_point() +
+  labs(title = "Height vs. Weight", x = "Height (meters)", y = "Weight (kg)") +
+  theme_minimal()
+```
+
+library(ggplot2): Loads the ggplot2 package, which provides a powerful system for creating graphics in R.  
+data.frame(height, weight): Combines the height and weight vectors into a data frame, which ggplot requires for input.  
+ggplot(data, aes(x = height, y = weight)): Initializes the plot object with the data frame, mapping height to the x-axis and weight to the y-axis.  
+geom_point(): Adds the points to the plot, creating a scatter plot.  
+labs(): Adds labels to the plot, including a title and axis labels.  
+theme_minimal(): Applies a clean, minimalistic theme to the plot.  
+
+**7. R language essentials**
+
+7.1 Expressions and objects
+
+The basic interaction mode in R is one of expression evaluation. The user enters an expression; the system evaluates it and prints the result. All R expressions return a value (possibly NULL), but sometimes it is “invisible” and not printed.
+```{r}
+x <- NULL
+```
+
+7.2 Functions and arguments
+
+Many things in R are done using function calls, commands that look like an application of a mathematical function of one or several variables; for example, log(x).
+
+7.3 Vectors
+
+We have already seen numeric vectors. There are two further types, character vectors and logical vectors. A character vector is a vector of text strings, whose elements are specified and printed in quotes:
+```{r}
+c("Huey","Dewey","Louie")
+c('Huey', 'Dewey', 'Louie')
+# The single and double quotation marks have no difference in R
+```
+Logical vectors are constructed using the c function just like the other vector types:
+```{r}
+c(T,T,F,T)
+c(TRUE, TRUE, FALSE, TRUE)
+```
+
+**Exercise:**  
+(1) Try the following R script:  
+a<-c(2, 3, exp(3.2), sin(8))  
+a>3
+
+7.4 Quoting and escape sequences
+
+```{r}
+cat("Huey","Dewey","Louie", "\n","Huey")
+# The "\n" at the end adds a newline, so the next output (if any) will appear on the following line
+cat("What is \"R\"?\n")
+cat("how are \"you\"?\n");cat("m")
+```
+
+7.5 Missing values
+
+R allows vectors to contain a special NA value as missing values.
+```{r}
+a<-"NA" # character string
+a<-NA # missing value
+```
+
+7.6 Functions that create vectors
+
+We introduce three functions, c, seq, and rep, that are used to create vectors in various situations.
+```{r}
+c(42,57,12,39,1,3,4)
+
+x <- c(1, 2, 3)
+y <- c(10, 20)
+c(x, y, 5)
+
+x <- c(red="Huey", blue="Dewey", green="Louie")
+x
+names(x)
+
+c(FALSE, 3)
+
+c(pi, "abc")
+
+c(FALSE, "abc")
+
+seq(4,9)
+# create a sequence of numbers from 4 to 9, with a default increment of 1
+
+seq(4,10,2)
+# generate a sequence of numbers from 4 to 10, with an increment of 2
+
+4:9
+# the colon operator : can generate a sequence with a step of 1
+
+oops <- c(7,9,13)
+rep(oops,3)
+# This repeats the entire vector oops three times
+
+rep(oops,1:3)
+# This repeats each element in oops a different number of times
+```
+
+7.7 Matrices and arrays
+
+```{r}
+x <- 1:12
+dim(x) <- c(3,4) 
+# This changes the dimensions of the vector x to a 3x4 matrix (3 rows and 4 columns)
+x
+
+matrix(1:12,nrow=3,byrow=F) # create a matrix filled column-wise
+
+matrix(1:12,nrow=3,byrow=T) # row-wise
+
+x <- matrix(1:12,nrow=3,byrow=T)
+rownames(x) <- LETTERS[1:3]
+# This assigns row names "A", "B", and "C" to the matrix x
+x
+
+t(x)
+# This transposes the matrix x, switching its rows and columns
+
+#?t
+#??transpose
+colnames(x)<-letters[1:4] 
+x
+
+colnames(x)<-c("j","a","b","c")
+x
+
+cbind(A=1:4,B=5:8,C=9:12)
+# This combines three vectors column-wise into a matrix, with column names "A", "B", and "C"
+
+rbind(A=1:4,B=5:8,C=9:12)
+# This combines three vectors row-wise into a matrix, with row names "A", "B", and "C"
+
+cbind(height, weight, bmi)
+
+cbind(height, weight, bmi)[2,1]
+# This extracts the value in the second row and the first column from the matrix
+```
+
+7.8 Lists
+
+In R, a list is a data structure that can hold multiple elements of different types. Unlike vectors, which can only contain elements of the same type (e.g., all numeric, all character), a list can contain a mix of types, including numbers, strings, vectors, other lists, and even functions.
+
+```{r}
+weight <- c(60, 72, 57, 90, 95, 72)
+height <- c(1.75, 1.80, 1.65, 1.90, 1.74, 1.91)
+mylist <- list(W = weight, H = height, meanW = mean(weight), meanH = mean(height), BMI = weight/height^2, test = t.test(weight/height^2, mu=22.5, alternative = "less"))
+mylist
+mylist$BMI
+```
+
+7.9 Data frame
+
+In R, a data frame is a two-dimensional, table-like data structure used for storing data. It is one of the most common and essential data structures in R, especially for statistical analysis and data manipulation.
+
+```{r}
+d <- data.frame(weight, height, bmi = weight/height^2)
+d
+d$weight
+d[1,1]
+```
+
+7.10 Indexing
+
+If you need a particular element in a vector, for instance the weight of the 2nd person, you can do
+```{r}
+weight[2]
+
+weight[c(1,2,4)]
+
+index = c(1,2,4)
+weight[index]
+
+weight[-index]
+# The negative sign - in front of the index indicates that you want to exclude the elements at the specified positions
+```
+
+7.11 Conditional selection
+
+Conditioning selection in R refers to the process of selecting elements from a data structure (like a vector, matrix, or data frame) based on certain conditions. This is often done using logical vectors or expressions that return TRUE or FALSE for each element, thereby "filtering" the elements that meet the specified condition(s).
+
+```{r}
+intake.pre <- c(5260,5470,5640,6180,6390,6515,6805,7515,7515,8230,8770)
+intake.post <- c(3910,4220,3885,5160,5645,4680,5265,5975,6790,6900,7335)
+intake.post[which(intake.post>7000)]
+
+intake.post[intake.post > 7000] 
+
+intake.post[intake.pre > 7000 & intake.pre <= 8000] 
+
+intake.pre > 7000 & intake.pre <= 8000
+
+d <- data.frame(intake.pre,intake.post) 
+d[5,1]
+
+d[5,]
+
+d[d$intake.pre>7000,] #[row, col]
+
+sel <- d$intake.pre>7000
+sel
+```
+
+7.12 subset and transform
+
+The indexing techniques for selecting out parts of a data frame are logical but sometimes cumbersome, the subset function can make it a little easier. And transform can add transformed variables to a data frame.
+
+```{r}
+# install.packages('ISwR')
+# Avoid including the install.packages() function when knitting an RMarkdown file. You only need to install a package once; after that, you only need to load it in subsequent sessions. You can comment out the installation line using #.
+library(ISwR) # load the package
+data(thuesen) # load a dataset from the ISwR package
+thue2 <- subset(thuesen, blood.glucose<7)
+thue2
+
+thue3 <- transform(thuesen, log.gluc = log(blood.glucose))
+thue3
+```
+
+7.13 Grouped data and data frames
+
+```{r}
+data(energy)
+energy
+
+energy$expend[energy$stature=="lean"]
+# This uses the logical vector to subset the expend column, returning only the values of expend for rows where stature is "lean".
+
+(data <-energy$expend)
+
+(group <-energy$stature)
+
+split(data,group) # split the values by the group levels
+```
+
+7.14 sorting
+
+```{r}
+intake.post
+sort(intake.post, decreasing = F)
+# arrange the elements of a vector in ascending or descending order
+order(intake.post)
+# returns the indices that would sort a vector. Instead of sorting the vector itself, it tells you the order of elements that would result in a sorted vector
+intake.post[order(intake.post)]
+```
+
+7.15 implicit loops
+
+```{r}
+lapply(thuesen, mean, na.rm=T)
+# lapply() Function: Applies a function to each element of a list or vector and returns the results as a list
+sapply(thuesen, mean, na.rm=T)
+# sapply() Function: Similar to lapply(), but it tries to simplify the output. If possible, it returns a vector or matrix instead of a list.
+m <- matrix(rnorm(12),4)
+# Creates a 4x3 matrix with 12 random numbers
+m <- matrix(data = rnorm(12), nrow = 4)
+# the same
+apply(m, 2, min)
+# 2: The margin, where 2 indicates columns. (If you used 1, it would mean rows.)
+apply(m, 1, min)
+
+energy
+tapply(energy$expend, energy$stature, median)
+# calculate the median of the expend variable (which might represent energy expenditure) within each group defined by the stature variable in the energy data frame.
+```
+
+**8. R programming**
+
+It is possible to create your own R functions.  
+A function in R is defined using the function() keyword. The basic structure of an R function looks like this:
+
+function_name <- function(arg1, arg2, ...) {
+  # Body of the function
+  # Perform some calculations or operations
+  result <- some_operation(arg1, arg2, ...)
+  # Return the result
+  return(result)
+}
+
+function_name: This is the name you give to your function. It should be descriptive to indicate what the function does.  
+function(arg1, arg2, ...): This is where you define the function's arguments (inputs). You can have as many arguments as you need, and they can have default values.  
+Body of the function: This is where you write the code that defines what the function does. You can include any R operations, conditional statements, loops, etc.  
+return(result): The return() statement is used to return the output of the function. If you don't explicitly use return(), R will return the result of the last evaluated expression.  
+
+Example 1
+
+```{r}
+add = function(a=1,b=1){
+  result = a + b
+  return(result)
+}
+add(2,3)
+add()
+```
+
+Example 2
+
+```{r}
+greet <- function(name = "World") {
+  message <- paste("Hello,", name, "!")
+  return(message)
+}
+greet("Alice")
+greet()
+```
+
+Example 3
+
+```{r}
+calculate_bmi <- function(weight, height) {
+  # Calculate BMI
+  bmi <- weight / (height^2)
+  # Determine BMI category
+  category <- ifelse(bmi < 18.5, "Underweight",
+                     ifelse(bmi < 25, "Normal weight",
+                            ifelse(bmi < 30, "Overweight", "Obese")))
+  # Return BMI and category
+  return(list(BMI = bmi, Category = category))
+}
+
+# Use the function
+result <- calculate_bmi(weight = 90, height = 1.85)
+print(result)
+```
+
+Example 4
+
+```{r}
+hist.with.normal <- function(x, xlab=deparse(substitute(x)),...){
+  h <- hist(x, plot=F, ...)
+  s <- sd(x)
+  m <- mean(x)
+  ylim <- range(0,h$density,dnorm(0,sd=s))
+  hist(x, freq=F, ylim=ylim, xlab=xlab, ...)
+  curve(dnorm(x,m,s), add=T)
+}
+hist.with.normal(x)
+
+
+histwithcurve <- function(x) {
+  hist(x,freq=F)
+  curve(dnorm(x),add=T)
+}
+histwithcurve(x)
+```
+
+**9. Flow control**
+
+Flow control in R refers to the mechanisms used to control the execution of code based on certain conditions or repeated execution. These mechanisms include conditional statements, loops, and functions that handle different cases in your code. Understanding flow control is essential for writing efficient and effective R scripts.
+
+9.1 "IF" statement
+
+The "if" statement executes a block of code only if a specified condition is TRUE.
+
+```{r}
+x <- 10
+
+if (x > 5) {
+  print("x is greater than 5")
+}
+```
+
+The "if...else" statement allows you to specify an alternative block of code that runs if the condition is FALSE.
+
+```{r}
+x <- 3
+
+if (x > 5) {
+  print("x is greater than 5")
+} else {
+  print("x is not greater than 5")
+}
+```
+
+For multiple conditions, you can chain "if", "else if", and "else" statements together.
+
+```{r}
+x <- 10
+
+if (x > 10) {
+  print("x is greater than 10")
+} else if (x == 10) {
+  print("x is equal to 10")
+} else {
+  print("x is less than 10")
+}
+```
+
+9.2 Loops
+
+The "for" loop iterates over a sequence (like a vector or list) and executes the code block for each element.
+
+```{r}
+for (i in 1:5) {
+  print(i)
+}
+```
+
+The "while" loop continues to execute as long as the condition is TRUE.
+
+```{r}
+x <- 1
+
+while (x <= 5) {
+  print(x)
+  x <- x + 1
+}
+```
+
+The "repeat" loop will keep executing indefinitely until you explicitly break out of it using the break statement.
+
+```{r}
+x <- 1
+
+repeat {
+  print(x)
+  x <- x + 1
+  if (x > 5) {
+    break
+  }
+}
+```
+
+The break statement exits a loop immediately.
+
+```{r}
+for (i in 1:10) {
+  if (i == 6) {
+    break
+  }
+  print(i)
+}
+```
+
+**10. Session management**
+
+10.1 Workspace
+
+All variables created in R are stored in a common workspace. To see which variables are defined in the workspace, you can use the function ls (list). you can delete some of the objects and this is done using rm (remove).
+
+```{r}
+ls()
+
+rm(height, weight) # rm: to remove the varaibles, vectors and datasets
+rm(list=ls()) ## the entire workspace will be cleared
+
+#save.image() ## save the workplace to a file called “.RData”
+#save.image("~/Desktop/lecture1_workspace.RData")
+#load("~/Desktop/lecture1_workspace.RData")
+```
+
+10.2 Packages
+
+An R installation contains one ormore libraries of packages. Some of these packages are part of the basic installation. Others can be downloaded from CRAN, which currently hosts over 20,000 packages for various purposes. You can even create your own packages. A package is loaded into R using the library command, so to load the survival package you should enter:
+
+```{r}
+# install.packages("survival")
+library(survival)
+
+detach("package:survival")
+# Detaching a package removes it from the search path, meaning its functions and datasets will no longer be directly accessible. This can be useful if you want to avoid conflicts between similarly named functions in different packages or if you want to unload the package to free up memory.
+```
+
+10.3 Build-in Data
+
+Many packages, both inside and outside the standard R distribution, come with built-in data sets. Such data sets can be rather large, so it is not a good idea to keep them all in computer memory at all times.
+
+```{r}
+data(thuesen)
+thuesen$blood.glucose 
+
+attach(thuesen)
+blood.glucose
+# attach() makes the variables (columns) in a data frame directly accessible by their names in the current R environment. This means you can refer to blood.glucose directly instead of thuesen$blood.glucose.
+
+detach(thuesen)
+```
+
+11. Reading data from a file
+
+You can directly read in data files that are in the same directory as your RMarkdown (.Rmd) file without needing to set the working directory using setwd().
+
+```{r}
+# setwd('/Users/ian_wang/Documents/SBU/SBU_courses/AMS394/2024 Fall')
+logret<- read.table("Lecture1_6logreturn.txt",header=T)
+head(logret)
+dim(logret) # number of rows/cols
+names(logret)
+logret[1:10,-c(2,4)]
+
+# We can use write.table or write.csv to output a dataset.
+library(ISwR)
+data(thuesen)
+thuesen2<- transform(thuesen,log.gluc=log(blood.glucose))
+write.table(thuesen2,"~/Desktop/mydata.txt")
+#write.table(thuesen2, "c:/mydata.txt", sep="\t")
+write.csv(thuesen2,"~/Desktop/mydata.csv")
+
+# We can also read online files directly
+bf = read.table("http://www.sthda.com/upload/boxplot_format.txt")
+head(bf)
+```

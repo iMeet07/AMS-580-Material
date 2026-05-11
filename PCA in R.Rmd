@@ -1,0 +1,34 @@
+---
+title: "PCA in R"
+author: "Weihao Wang"
+date: "2025-04-16"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+data(mtcars)
+head(mtcars)
+
+# PCA is affected by the scale of the variables, so standardization is usually necessary.
+mtcars_scaled <- scale(mtcars)
+pca_mtcars <- prcomp(mtcars_scaled, center = TRUE, scale. = TRUE) # you can also scale the data here.
+summary(pca_mtcars)
+# Standard deviation; Proportion of variance explained; Cumulative variance explained
+pca_mtcars$rotation
+# loading matrix
+
+
+# Scree Plot: helps decide how many PCs to keep
+library(factoextra)
+fviz_eig(pca_mtcars)
+
+# Biplot Visualization
+library(ggbiplot)
+ggbiplot(pca_mtcars)
+
+# PC1 captures the direction of maximum variance.
+# Each PC is a linear combination of the original variables.
+# The biplot shows both data points and variable loadings — useful for seeing relationships between variables and identifying clusters.
+```

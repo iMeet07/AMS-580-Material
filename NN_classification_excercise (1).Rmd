@@ -1,0 +1,154 @@
+---
+title: "Solution to Neural Network, Classification Task, Exercise"
+author: "Your name"
+date: "mm/dd/yyyy"
+output:
+  pdf_document: default
+  word_document: default
+---
+
+# Load data and packages
+```{r}
+if (!requireNamespace("tidyverse")) install.packages("tidyverse")
+if (!requireNamespace("caret")) install.packages("caret")
+if (!requireNamespace("neuralnet")) install.packages("neuralnet")
+if (!requireNamespace("e1071")) install.packages("e1071")
+
+library(tidyverse)
+library(caret)
+library(neuralnet)
+library(e1071)
+```
+
+```{r}
+banknote <- read.csv('banknote.csv')
+banknote <- na.omit(banknote)
+cat('There are', nrow(banknote), 'observations left.')
+```
+
+```{r}
+str(banknote)
+```
+
+# Question 1
+
+The first question use SSE as the loss function, so we do not factorize the response variable now.
+
+```{r}
+set.seed(123)
+training.samples <- banknote$class %>% createDataPartition(p = 0.75, list = FALSE)
+train.data  <- banknote[training.samples, ]
+test.data <- banknote[-training.samples, ]
+```
+
+# Question 2
+
+```{r}
+set.seed(123)
+model <- neuralnet(class~., data = train.data, hidden = 0, err.fct = "sse", linear.output = F)
+# If hidden = 0, neuralnet will create a model with only the input and output layers
+# Loss function: SSE
+# err.fct = function(y, yhat) mean((y - yhat)^2) for MSE
+# linear.output = FALSE applies a logistic (sigmoid) activation function to the output.
+plot(model, rep = "best")
+```
+
+```{r}
+probabilities <- model %>% predict(test.data) %>% as.vector()
+predicted.classes <- ifelse(probabilities > 0.5, 1, 0)
+predicted.classes <- factor(predicted.classes, levels = c(0, 1))
+true.classes <- factor(test.data$class, levels = c(0, 1))
+
+cm <- confusionMatrix(predicted.classes, true.classes, positive = "1")
+cm
+```
+
+# Question 3
+
+```{r}
+set.seed(123)
+model <- neuralnet(class~., data = train.data, hidden = 0, err.fct = "ce", linear.output = F)
+plot(model, rep = "best")
+```
+
+```{r}
+probabilities <- model %>% predict(test.data)
+predicted.classes <- ifelse(probabilities > 0.5, 1, 0)
+predicted.classes <- factor(predicted.classes, levels = c(0, 1))
+true.classes <- factor(test.data$class, levels = c(0, 1))
+
+cm <- confusionMatrix(predicted.classes, true.classes, positive = "1")
+cm
+```
+
+# Question 4
+
+```{r}
+set.seed(123)
+model <- glm(class~., family = binomial, data = train.data)
+model
+```
+
+```{r}
+probabilities <- model %>% predict(test.data, type = 'response')
+predicted.classes <- ifelse(probabilities > 0.5, 1, 0)
+predicted.classes <- factor(predicted.classes, levels = c(0, 1))
+true.classes <- factor(test.data$class, levels = c(0, 1))
+
+cm <- confusionMatrix(predicted.classes, true.classes, positive = "1")
+cm
+```
+
+# Question 5
+```{r}
+set.seed(123)
+model <- neuralnet(class~., data = train.data, hidden = 3, err.fct = "sse", linear.output = F)
+plot(model, rep = "best")
+
+# In neuralnet, you can adjust the initial weights using the startweights argument. 
+# This allows you to specify the starting values for the network’s weights instead of relying on the default random initialization.
+# E.g we have 4 input features (i.e., p = 4), 3 hidden neurons, and 1 output neuron.
+# Total weights=(p+1)×h+(h+1)×1 = (4+1)×3+(3+1)×1=5×3+4×1=15+4 = 19
+init_weights <- runif(19, min = -1, max = 1)  # Randomly initialize between -1 and 1
+model_w <- neuralnet(class~., data = train.data, hidden = 3, err.fct = "sse",
+                   linear.output = FALSE, startweights = init_weights)
+plot(model_w, rep = "best")
+```
+
+The three neurons in the hidden layer of your neural network share the same activation function, but they learn different feature representations.
+
+All hidden neurons use the same activation function (e.g., sigmoid or tanh).
+Each neuron has different weights and biases, so they learn different feature transformations.
+The output neuron aggregates their outputs to make the final prediction.
+
+
+```{r}
+probabilities <- model %>% predict(test.data)
+predicted.classes <- ifelse(probabilities > 0.5, 1, 0)
+predicted.classes <- factor(predicted.classes, levels = c(0, 1))
+true.classes <- factor(test.data$class, levels = c(0, 1))
+
+cm <- confusionMatrix(predicted.classes, true.classes, positive = "1")
+cm
+```
+
+The prediction with hidden layer is better than no hidden layer.
+
+# Question 6
+
+```{r}
+set.seed(123)
+model <- neuralnet(class~., data = train.data, hidden = 3, err.fct = "ce", linear.output = F)
+plot(model, rep = "best")
+```
+```{r}
+probabilities <- model %>% predict(test.data)
+predicted.classes <- ifelse(probabilities > 0.5, 1, 0)
+predicted.classes <- factor(predicted.classes, levels = c(0, 1))
+true.classes <- factor(test.data$class, levels = c(0, 1))
+
+cm <- confusionMatrix(predicted.classes, true.classes, positive = "1")
+cm
+```
+
+The prediction with hidden layer is better than no hidden layer in this task.

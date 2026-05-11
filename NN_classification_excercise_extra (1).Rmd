@@ -1,0 +1,171 @@
+---
+title: "NN_classification_excercies"
+output: pdf_document
+---
+
+**Using only the training data, try several neural network settings and choose the best neural network classifier for predicting class.**
+
+You may vary:
+1. the number of hidden neurons,
+2. the loss function ("sse" or "ce"),
+3. and the classification cutoff if needed.
+
+Use the training set to select the model, and then evaluate the final chosen model on the testing set. Report:
+1. the tuning settings you tried,
+2. which model was selected as the best,
+3. the confusion matrix on the testing set,
+4. the sensitivity, specificity, and overall accuracy.
+
+Briefly explain why your chosen model is the best.
+
+```{r}
+if (!requireNamespace("tidyverse")) install.packages("tidyverse")
+if (!requireNamespace("caret")) install.packages("caret")
+if (!requireNamespace("neuralnet")) install.packages("neuralnet")
+if (!requireNamespace("e1071")) install.packages("e1071")
+library(tidyverse)
+library(caret)
+library(neuralnet)
+library(e1071)
+
+banknote <- read.csv('banknote.csv')
+banknote <- na.omit(banknote)
+set.seed(123)
+training.samples <- banknote$class %>% createDataPartition(p = 0.75, list = FALSE)
+train.data  <- banknote[training.samples, ]
+test.data <- banknote[-training.samples, ]
+```
+
+
+```{r}
+# Tune the neural network model
+set.seed(123)
+
+# -----------------------------------
+# Step 1: Standardize predictors
+# (IMPORTANT: use training-set statistics only)
+# -----------------------------------
+preproc <- preProcess(train.data[, -ncol(train.data)], method = c("center", "scale"))
+
+train.x <- predict(preproc, train.data[, -ncol(train.data)])
+test.x  <- predict(preproc, test.data[, -ncol(test.data)])
+
+train.data.scaled <- data.frame(train.x, class = train.data$class)
+test.data.scaled  <- data.frame(test.x, class = test.data$class)
+
+# -----------------------------------
+# Step 2: Split training data into sub-training and validation sets
+# -----------------------------------
+sub_train_index <- createDataPartition(train.data.scaled$class, p = 0.8, list = FALSE)
+sub_train <- train.data.scaled[sub_train_index, ]
+valid_data <- train.data.scaled[-sub_train_index, ]
+
+# -----------------------------------
+# Step 3: Function to fit model and return validation accuracy
+# Use tryCatch to avoid crashing if one model fails
+# -----------------------------------
+get_valid_accuracy <- function(hidden_units, loss_type) {
+  set.seed(123)
+  
+  out <- tryCatch({
+    fit <- neuralnet(
+      class ~ .,
+      data = sub_train,
+      hidden = hidden_units,
+      err.fct = loss_type,
+      linear.output = FALSE,
+      stepmax = 1e6
+    )
+    
+    prob <- predict(fit, valid_data) |> as.vector()
+    pred <- ifelse(prob > 0.5, 1, 0)
+    
+    pred <- factor(pred, levels = c(0, 1))
+    truth <- factor(valid_data$class, levels = c(0, 1))
+    
+    cm <- confusionMatrix(pred, truth, positive = "1")
+    
+    data.frame(
+      hidden = hidden_units,
+      loss = loss_type,
+      valid_accuracy = as.numeric(cm$overall["Accuracy"]),
+      status = "success"
+    )
+  }, error = function(e) {
+    data.frame(
+      hidden = hidden_units,
+      loss = loss_type,
+      valid_accuracy = NA,
+      status = "failed"
+    )
+  })
+  
+  return(out)
+}
+
+# -----------------------------------
+# Step 4: Grid of tuning parameters
+# -----------------------------------
+tuning_grid <- expand.grid(
+  hidden = c(0, 1, 3, 5),
+  loss = c("sse", "ce")
+)
+
+# -----------------------------------
+# Step 5: Try all settings
+# -----------------------------------
+results <- purrr::map2_df(tuning_grid$hidden, tuning_grid$loss, get_valid_accuracy)
+results
+
+# Keep only successful fits
+results_clean <- results %>%
+  filter(status == "success") %>%
+  arrange(desc(valid_accuracy))
+
+results_clean
+
+# -----------------------------------
+# Step 6: Select the best setting
+# -----------------------------------
+best_setting <- results_clean %>%
+  slice(1)
+
+best_setting
+
+# -----------------------------------
+# Step 7: Refit the best model using the FULL scaled training data
+# -----------------------------------
+set.seed(123)
+best_model <- neuralnet(
+  class ~ .,
+  data = train.data.scaled,
+  hidden = best_setting$hidden,
+  err.fct = as.character(best_setting$loss),
+  linear.output = FALSE,
+  stepmax = 1e6
+)
+
+plot(best_model, rep = "best")
+
+# -----------------------------------
+# Step 8: Evaluate on the scaled testing data
+# -----------------------------------
+best_prob <- predict(best_model, test.data.scaled) |> as.vector()
+best_pred <- ifelse(best_prob > 0.5, 1, 0)
+
+best_pred <- factor(best_pred, levels = c(0, 1))
+true_class <- factor(test.data.scaled$class, levels = c(0, 1))
+
+best_cm <- confusionMatrix(best_pred, true_class, positive = "1")
+best_cm
+
+# -----------------------------------
+# Step 9: Report metrics
+# -----------------------------------
+data.frame(
+  Sensitivity = best_cm$byClass["Sensitivity"],
+  Specificity = best_cm$byClass["Specificity"],
+  Accuracy = best_cm$overall["Accuracy"]
+)
+
+```
